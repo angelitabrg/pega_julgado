@@ -1,8 +1,11 @@
 import scrapy
+import pdb
 
 from esaj.spiders.helper.innertext import innertext_quick
 from esaj.spiders.helper.treatment import treatment
 from scrapy_splash import SplashRequest
+
+
 
 next_page_script = """
 function main(splash, args)
@@ -25,13 +28,14 @@ class CjsgSpider(scrapy.Spider):
         yield SplashRequest(url, self.parse, args={'wait': 1})
 
     def parse(self, response):
-        for process in response.css('#tdResultados .fundocinza1'):
+        for process in response.css('#tdResultados tbody tbody'):
+            # pdb.set_trace()
             yield {
                 'numero_processo': process.css('[title="Visualizar Inteiro Teor"]::text').get(default="").strip(),
                 'numero_ocorrencia_inteiro_teor': self.get_occurrence_number(process),
-                'ementa': self.get_detail(process, 'Ementa:', '[style="display: none;"]'),
-                'data_julgamento': self.get_detail(process, 'Data do julgamento:'),
-                'data_publicacao': self.get_detail(process, 'Data de publicação:'),
+                'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
+                'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
+                'ementa': self.get_detail(process, 'tr:last-child', 'Ementa:'),
             }
         if self.has_next_page(response) is not None:
             yield SplashRequest(
@@ -54,16 +58,19 @@ class CjsgSpider(scrapy.Spider):
         pos = text.find(' ocorrência')
         occurrence_number = text[1:pos]
         if occurrence_number:
-            return occurrence_number
+            return occurrence_number.strip()
         return ''
 
-    def get_detail(self, process, search, css_selector=''):
-        element = process.css(f'.ementaClass2 {css_selector}:contains("{search}")')
+    def get_detail(self, process, css_selector, search=''):
+        element = process.css(f'{css_selector} :contains("{search}")')
         text = innertext_quick(element)[0]
-        pos = len(search)
+        if text.find(search) > -1:
+            pos = len(search)
+        else:
+            pos = 0
         final_text = text[pos:]
         if final_text:
-            return treatment(final_text)
+            return treatment(final_text).strip()
         return ''
 
 
