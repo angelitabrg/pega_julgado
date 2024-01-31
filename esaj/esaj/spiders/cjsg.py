@@ -29,7 +29,6 @@ class CjsgSpider(scrapy.Spider):
 
     def parse(self, response):
         for process in response.css('#tdResultados tbody tbody'):
-            # pdb.set_trace()
             yield {
                 'numero_processo': process.css('[title="Visualizar Inteiro Teor"]::text').get(default="").strip(),
                 'numero_ocorrencia_inteiro_teor': self.get_occurrence_number(process),
