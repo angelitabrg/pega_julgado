@@ -30,11 +30,8 @@ class CjsgSpider(scrapy.Spider):
     def parse(self, response):
         for process in response.css('#tdResultados tbody tbody'):
             yield {
-                'numero_processo': process.css('[title="Visualizar Inteiro Teor"]::text').get(default="").strip(),
-                'numero_ocorrencia_inteiro_teor': self.get_occurrence_number(process),
-                'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
-                'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
-                'ementa': self.get_detail(process, 'tr:last-child', 'Ementa:'),
+                'numero_processo': self.get_detail(process, '[title="Visualizar Inteiro Teor"]'),
+                'ementa': self.get_detail(process, 'tr:last-child div:last-child'),
             }
         if self.has_next_page(response) is not None:
             yield SplashRequest(
