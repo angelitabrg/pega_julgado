@@ -31,6 +31,9 @@ class CjsgSpider(scrapy.Spider):
         for process in response.css('#tdResultados tbody tbody'):
             yield {
                 'numero_processo': self.get_detail(process, '[title="Visualizar Inteiro Teor"]'),
+                'comarca': self.get_detail(process, 'tr', 'Comarca:'),
+                'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
+                'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
                 'ementa': self.get_detail(process, 'tr:last-child div:last-child'),
             }
         if self.has_next_page(response) is not None:
