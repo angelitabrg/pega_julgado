@@ -5,20 +5,6 @@ from esaj.spiders.helper.innertext import innertext_quick
 from esaj.spiders.helper.treatment import treatment
 from scrapy_splash import SplashRequest
 
-
-
-next_page_script = """
-function main(splash, args)
-    splash:go(args.url)
-
-    local a_element = splash:select('[title="Próxima página"]')
-    a_element:mouse_click()
-
-    splash:wait(splash.args.wait)  
-    return splash:html()
-end
-"""
-
 class CjsgSpider(scrapy.Spider):
     name = "cjsg"
     allowed_domains = ["esaj.tjsp.jus.br"]
@@ -28,13 +14,25 @@ class CjsgSpider(scrapy.Spider):
         yield SplashRequest(url, self.parse, args={'wait': 1})
 
     def parse(self, response):
+        next_page_script = """
+        function main(splash, args)
+            splash:go(args.url)
+
+            local a_element = splash:select('[title="Próxima página"]')
+            a_element:mouse_click()
+
+            splash:wait(splash.args.wait)  
+            return splash:html()
+        end
+        """
+
         for process in response.css('#tdResultados tbody tbody'):
             yield {
-                'numero_processo': self.get_detail(process, '[title="Visualizar Inteiro Teor"]'),
+                'numero_processo': process.css('[title="Visualizar Inteiro Teor"]::text').get().strip(),
                 'comarca': self.get_detail(process, 'tr', 'Comarca:'),
                 'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
                 'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
-                'ementa': self.get_detail(process, 'tr:last-child div:last-child'),
+                'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
             }
         if self.has_next_page(response) is not None:
             yield SplashRequest(
