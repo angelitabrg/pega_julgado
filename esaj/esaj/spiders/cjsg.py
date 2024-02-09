@@ -12,18 +12,26 @@ class CjsgSpider(scrapy.Spider):
     name = "cjsg"
     allowed_domains = ["esaj.tjsp.jus.br"]
 
+    def __init__(self, search, instance, *args, **kwargs):
+        super(CjsgSpider, self).__init__(*args, **kwargs)
+        self.search = search
+        self.instance = instance
+
     def start_requests(self):
-        search = getattr(self, "search", None)
-        url = f'https://esaj.tjsp.jus.br/cjsg/resultadoCompleta.do?conversationId=&dados.buscaInteiroTeor={urllib.parse.quote(search)}&dados.pesquisarComSinonimos=S&dados.pesquisarComSinonimos=S&dados.buscaEmenta=&dados.nuProcOrigem=&dados.nuRegistro=&agenteSelectedEntitiesList=&contadoragente=0&contadorMaioragente=0&codigoCr=&codigoTr=&nmAgente=&juizProlatorSelectedEntitiesList=&contadorjuizProlator=0&contadorMaiorjuizProlator=0&codigoJuizCr=&codigoJuizTr=&nmJuiz=&classesTreeSelection.values=&classesTreeSelection.text=&assuntosTreeSelection.values=&assuntosTreeSelection.text=&comarcaSelectedEntitiesList=&contadorcomarca=0&contadorMaiorcomarca=0&cdComarca=&nmComarca=&secoesTreeSelection.values=&secoesTreeSelection.text=&dados.dtJulgamentoInicio=&dados.dtJulgamentoFim=&dados.dtPublicacaoInicio=&dados.dtPublicacaoFim=&dados.origensSelecionadas=T&tipoDecisaoSelecionados=A&dados.ordenarPor=dtPublicacao'
-        yield scrapy.Request(url, self.parse, meta={'selector': '#tdResultados table table'})
+        if self.search is not None and self.instance is not None:
+            url = f'https://esaj.tjsp.jus.br/cjsg/resultadoCompleta.do?conversationId=&dados.buscaInteiroTeor={urllib.parse.quote(self.search)}&dados.pesquisarComSinonimos=S&dados.pesquisarComSinonimos=S&dados.buscaEmenta=&dados.nuProcOrigem=&dados.nuRegistro=&agenteSelectedEntitiesList=&contadoragente=0&contadorMaioragente=0&codigoCr=&codigoTr=&nmAgente=&juizProlatorSelectedEntitiesList=&contadorjuizProlator=0&contadorMaiorjuizProlator=0&codigoJuizCr=&codigoJuizTr=&nmJuiz=&classesTreeSelection.values=&classesTreeSelection.text=&assuntosTreeSelection.values=&assuntosTreeSelection.text=&comarcaSelectedEntitiesList=&contadorcomarca=0&contadorMaiorcomarca=0&cdComarca=&nmComarca=&secoesTreeSelection.values=&secoesTreeSelection.text=&dados.dtJulgamentoInicio=&dados.dtJulgamentoFim=&dados.dtPublicacaoInicio=&dados.dtPublicacaoFim=&dados.origensSelecionadas=T&tipoDecisaoSelecionados=A&dados.ordenarPor=dtPublicacao'
+            yield scrapy.Request(url, self.parse, meta={'selector': '#tdResultados table table'})
 
     def parse(self, response):
         selector = response.meta.get('selector')
 
         for process in response.css(selector):
-            print(process.css('a[title="Visualizar Inteiro Teor"]::text').get().strip())
             yield {
                 'numero_processo': process.css('a[title="Visualizar Inteiro Teor"]::text').get().strip(),
+                'classe': self.get_detail(process, 'tr', 'Classe/Assunto:').split('/')[0].strip(),
+                'assunto': self.get_detail(process, 'tr', 'Classe/Assunto:').split('/')[1].strip(),
+                'relator_a': self.get_detail(process, 'tr', 'Relator(a):'),
+                'orgao_julgador': self.get_detail(process, 'tr', 'Órgão julgador:'),
                 'comarca': self.get_detail(process, 'tr', 'Comarca:'),
                 'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
                 'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
