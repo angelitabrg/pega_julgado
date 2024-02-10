@@ -1,13 +1,21 @@
 import scrapy
 import re
 import uuid
+import logging
+
 class ProcessConsultationSpider(scrapy.Spider):
     name = "process_consultation"
-    allowed_domains = ["esaj.tjsp.jus.br", "consultasaj.tjam.jus.br"]
+    allowed_domains = ["esaj.tjsp.jus.br"]
 
-    start_urls = [
-        "https://consultasaj.tjam.jus.br/cposgcr/search.do?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa=4006900-40.2023.8.04.0000&tipoNuProcesso=SAJ"
-    ]
+    def start_requests(self):
+        process_number = getattr(self, "process_number", None)
+        url = "https://esaj.tjsp.jus.br/cposg/search.do"
+
+        if process_number:
+            parameters = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={process_number}&tipoNuProcesso=SAJ'
+            yield scrapy.Request(url + parameters, self.parse)
+        else:
+            logging.warning('Process number is missing')
 
     def parse(self, response):
         yield {
@@ -28,11 +36,11 @@ class ProcessConsultationSpider(scrapy.Spider):
             document_origin = link_movement.attrib['cddocumento']
             resource_origin = link_movement.attrib['name']
             url = (
-                f'https://consultasaj.tjam.jus.br/cposgcr/verificarAcessoMovimentacao.do?cdDocumento={document_origin}'
+                f'https://esaj.tjsp.jus.br/cposg/verificarAcessoMovimentacao.do?cdDocumento={document_origin}'
                 f'&origemRecurso={resource_origin}&cdProcesso={process}'
             )
 
-            if document_origin == '29':
+            if document_origin == '12':
                 yield scrapy.Request(url=url, callback=self.open_pdf)
 
     def open_pdf(self, response):
@@ -43,7 +51,7 @@ class ProcessConsultationSpider(scrapy.Spider):
         match = re.search(r'"parametros":"([^"]*)"', html_script)
         parameters = match.group(1) if match else None
 
-        url = (f'https://consultasaj.tjam.jus.br/pastadigital/getPDF.do?{parameters}')
+        url = (f'https://esaj.tjsp.jus.br/pastadigital/getPDF.do?{parameters}')
         yield scrapy.Request(url=url, callback=self.download_pdf)
 
     def download_pdf(self, response):
