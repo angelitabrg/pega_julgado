@@ -1,4 +1,4 @@
-# Legal and Process Consultation
+# Legal Consultation
 ## How to make a legal consultation?
 ### To CJPG
     scrapy crawl cjpg -o cjpg.csv -a instance=cjpg -a search='your search'
