@@ -11,8 +11,8 @@
 
 # Process Consultation
 ## How to make a process consultation?
-### To CJPG
-    scrapy crawl cjpg -o cjpg.csv -a process_number='process_number'
+### To CJSG
+    scrapy crawl cjsg -o cjsg.csv -a process_number='process_number'
 
 ## TODO:
 - [ ] Add erros logs.
