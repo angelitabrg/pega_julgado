@@ -5,7 +5,6 @@
 ### To CJSG
     scrapy crawl cjsg -o cjsg.csv -a instance=cjsg -a search='your search'
 ## TODO:
-- [ ] Add erros logs.
 - [ ] Add _inteiro teor_ download (Because they don't have reecaptcha).
 
 
