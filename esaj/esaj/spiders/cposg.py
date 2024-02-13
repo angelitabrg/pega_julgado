@@ -1,3 +1,6 @@
+from io import BytesIO
+
+import PyPDF4
 import scrapy
 import re
 import uuid
@@ -6,6 +9,7 @@ import pandas as pd
 import csv
 import os
 from time import sleep
+import pdfplumber
 
 class CposgSpider(scrapy.Spider):
     name = "cposg"
@@ -23,7 +27,8 @@ class CposgSpider(scrapy.Spider):
 
     def parse(self, response):
         data = {
-            'status': response.css('#situacaoProcesso::text').get(default="").strip(),
+            'numero_processo': response.css('#numeroProcesso::text').get().strip(),
+            'situacao': response.css('#situacaoProcesso::text').get(default="").strip(),
             'classe': response.css('#classeProcesso span::text').get(default="").strip(),
             'assunto': response.css('#assuntoProcesso span::text').get(default="").strip(),
             'secao': response.css('#secaoProcesso span::text').get(default="").strip(),
@@ -31,12 +36,12 @@ class CposgSpider(scrapy.Spider):
             'area': response.css('#areaProcesso span::text').get(default="").strip(),
             'relator_a': response.css('#relatorProcesso span::text').get(default="").strip(),
             'valor_acao': response.css('#valorAcaoProcesso span::text').get(default="").strip(),
-            'comarca': response.css('#maisDetalhes span:contains("Origem")').xpath('..').css(
-                'div div span::text').get(),
+            'comarca': response.css('#maisDetalhes span:contains("Origem")').xpath('..').css('div div span::text').get()
         }
         self.add_to_excel(data, 'cposg')
+        self.first_instances(response)
 
-        link_movements = response.css('a.linkMovVincProc')
+        link_movements = response.css('.descricaoMovimentacaoProcesso a.linkMovVincProc')
         for link_movement in link_movements:
             title = link_movement.css('::text').get(default="").strip()
             description = link_movement.xpath('..').css('span::text').get(default="").strip()
@@ -47,11 +52,13 @@ class CposgSpider(scrapy.Spider):
                 f'https://esaj.tjsp.jus.br/cposg/verificarAcessoMovimentacao.do?cdDocumento={document_origin}'
                 f'&origemRecurso={resource_origin}&cdProcesso={process}'
             )
-            sleep(5)
+            sleep(3)
+            print(f'\n\n(parse)debugador: {document_origin} {process} {title} {description}\n\n')
             yield scrapy.Request(
                 url=url,
                 callback=self.open_pdf,
                 meta={
+                    'process_number': response.css('#numeroProcesso::text').get().strip(),
                     'cdprocesso': process,
                     'cddocumento': document_origin,
                     'title': title,
@@ -60,9 +67,27 @@ class CposgSpider(scrapy.Spider):
             )
 
     def open_pdf(self, response):
+        print(f'\n\n(open_pdf)debugador: {response.meta.get("title")} {response.meta.get("description")}\n\n')
         yield scrapy.Request(url=response.body.decode('utf-8'), callback=self.pdf_viewer, meta=response.meta)
 
+    def first_instances(self, response):
+        table = response.css('a[href*="esaj.tjsp.jus.br/cpopg/show.do?"]').xpath('ancestor::table')
+        type = table.css('td:nth-child(1)').get('')
+
+        data = {
+            'numero_processo': response.css('#numeroProcesso::text').get().strip(),
+            'n_1_instancia': table.css('td:nth-child(1) a::text').get().strip(),
+            'tipo': re.search(r'\((.*?)\)', type).group(1) if re.search(r'\((.*?)\)', type) else None,
+            'foro': table.css('td:nth-child(2)::text').get().strip(),
+            'vara': table.css('td:nth-child(3)::text').get().strip(),
+            'juiz': table.css('td:nth-child(4)::text').get().strip(),
+            'obs': table.css('td:nth-child(5)::text').get().strip(),
+        }
+
+        self.add_to_excel(data, 'first_instances')
+
     def pdf_viewer(self, response):
+        print(f'\n\n(pdf_viewer)debugador: {response.meta.get("title")} {response.meta.get("description")}\n\n')
         html_script = response.css('script:contains("parametros")').get()
         match = re.search(r'"parametros":"([^"]*)"', html_script)
         parameters = match.group(1) if match else None
@@ -70,17 +95,8 @@ class CposgSpider(scrapy.Spider):
         url = (f'https://esaj.tjsp.jus.br/pastadigital/getPDF.do?{parameters}')
         yield scrapy.Request(url=url, callback=self.save_pdf, meta=response.meta)
 
-    def download_pdf(self, response):
-        process_number = str(uuid.uuid4())
-        pdf_filename = f'{process_number}.pdf'
-        try:
-            with open(pdf_filename, 'wb') as pdf_file:
-                pdf_file.write(response.body)
-            self.log(f'PDF saved successfully: {pdf_filename}')
-        except Exception as e:
-            self.log(f'Error saving PDF: {e}')
-
     def save_pdf(self, response):
+        print(f'\n\n(save_pdf)debugador: {response.meta.get("title")} {response.meta.get("description")}\n\n')
         try:
             file_name = str(uuid.uuid4())
             with open(f'{file_name}.pdf', 'wb') as pdf_file:
@@ -88,16 +104,16 @@ class CposgSpider(scrapy.Spider):
 
             pdf_info = {
                 'pdf_name': file_name,
-                'process_number': getattr(self, "process_number", None),
-                'cddocumento': response.meta.get('cddocumento'),
-                'title': response.meta.get('title'),
-                'description': response.meta.get('description'),
-                'cdprocesso': response.meta.get('cdprocesso')
+                'numero_processo': response.meta.get('process_number'),
+                'documento': response.meta.get('cddocumento'),
+                'titulo': response.meta.get('title'),
+                'descricao': response.meta.get('description'),
+                'processo': response.meta.get('cdprocesso'),
+                'conteudo': self.pdf_to_text(response.body)
             }
             self.add_to_excel(pdf_info, 'moviments')
         except Exception as e:
             logging.warning(f'Error saving PDF: {e}')
-
 
     def add_to_excel(self, pdf_info, file_name='file'):
         csv_file = f'{file_name}.csv'
@@ -111,3 +127,18 @@ class CposgSpider(scrapy.Spider):
             df.to_csv(csv_file, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
         except Exception as e:
             logging.error(f"The error occurred while adding information from the PDF to the CSV. {e}")
+
+    # def pdf_to_text(self, pdf_content):
+    #     with pdfplumber.open(BytesIO(pdf_content)) as pdf:
+    #         extracted_text = ""
+    #         for page in pdf.pages:
+    #             extracted_text += page.extract_text()
+    #         return extracted_text
+
+    def pdf_to_text(self, pdf_content):
+        extracted_text = ""
+        pdf = PyPDF4.PdfFileReader(BytesIO(pdf_content))
+        for page_num in range(pdf.numPages):
+            page = pdf.getPage(page_num)
+            extracted_text += page.extractText()
+        return extracted_text
