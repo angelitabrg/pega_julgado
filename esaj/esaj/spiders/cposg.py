@@ -23,14 +23,16 @@ class CposgSpider(scrapy.Spider):
 
     def parse(self, response):
         data = {
-            'classe': response.css('#situacaoProcesso::text').get(default="").strip(),
-            'status': response.css('#classeProcesso span::text').get(default="").strip(),
+            'status': response.css('#situacaoProcesso::text').get(default="").strip(),
+            'classe': response.css('#classeProcesso span::text').get(default="").strip(),
             'assunto': response.css('#assuntoProcesso span::text').get(default="").strip(),
             'secao': response.css('#secaoProcesso span::text').get(default="").strip(),
             'orgao_julgador': response.css('#orgaoJulgadorProcesso span::text').get(default="").strip(),
             'area': response.css('#areaProcesso span::text').get(default="").strip(),
-            'relator': response.css('#relatorProcesso span::text').get(default="").strip(),
+            'relator_a': response.css('#relatorProcesso span::text').get(default="").strip(),
             'valor_acao': response.css('#valorAcaoProcesso span::text').get(default="").strip(),
+            'comarca': response.css('#maisDetalhes span:contains("Origem")').xpath('..').css(
+                'div div span::text').get(),
         }
         self.add_to_excel(data, 'cposg')
 
