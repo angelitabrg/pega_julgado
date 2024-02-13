@@ -7,7 +7,7 @@ import logging
 import uuid
 import re
 import pandas as pd
-from openpyxl import Workbook
+import csv
 
 from esaj.spiders.helpers.innertext import innertext_quick
 from esaj.spiders.helpers.treatment import treatment
@@ -28,22 +28,34 @@ class LegalConsultationSpider(scrapy.Spider):
 
     def parse(self, response):
         for process in response.css('#tdResultados table table'):
-            try:
-                yield {
-                    'numero_processo': self.process_number(process),
-                    'classe': self.get_detail(process, 'tr', 'Classe:').strip(),
-                    'assunto': self.get_detail(process, 'tr', 'Assunto:').strip(),
-                    'magistrado': self.get_detail(process, 'tr', 'Magistrado:'),
-                    'foro': self.get_detail(process, 'tr', 'Foro:'),
-                    'vara': self.get_detail(process, 'tr', 'Vara:'),
-                    'data_disponibilizacao': self.get_detail(process, 'tr', 'Data de Disponibilização:'),
-                    'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
-                }
+            data = {
+                'numero_processo': self.process_number(process),
+                'classe': self.get_detail(process, 'tr', 'Classe:').strip(),
+                'assunto': self.get_detail(process, 'tr', 'Assunto:').strip(),
+                'magistrado': self.get_detail(process, 'tr', 'Magistrado:'),
+                'foro': self.get_detail(process, 'tr', 'Foro:'),
+                'vara': self.get_detail(process, 'tr', 'Vara:'),
+                'data_disponibilizacao': self.get_detail(process, 'tr', 'Data de Disponibilização:'),
+                'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
+            }
+            self.add_to_excel(data, 'cjpg')
 
-                self.open_pdf(response)
-            except Exception as e:
-                logging.warning(f'Could not retrieve message: {e}. method: parse')
-
+            sleep(5)
+            attributes = process.css('a[title="Visualizar Inteiro Teor"]::attr("name")').get().split('-')
+            cdprocesso = attributes[0]
+            cdforo = attributes[1]
+            mnalias = attributes[2]
+            cddocumento = attributes[3]
+            url = f'https://esaj.tjsp.jus.br/cjpg/obterArquivo.do?cdProcesso={cdprocesso}&cdForo={cdforo}&nmAlias={mnalias}&cdDocumento={cddocumento}'
+            yield scrapy.Request(
+                url=url,
+                meta={
+                    'process_number': self.process_number(process),
+                    'cdprocesso': cdprocesso,
+                    'cddocumento': cddocumento
+                },
+                callback=self.pdf_viewer
+            )
 
         logging.info(f"\nURL: {response.url}, Current page: {self.get_current_page(response)}, Has next page: {self.has_next_page(response)}")
 
@@ -94,25 +106,6 @@ class LegalConsultationSpider(scrapy.Spider):
             return treatment(final_text).strip()
         return ''
 
-
-    def open_pdf(self, process):
-        sleep(5)
-        element = process.css('a[title="Visualizar Inteiro Teor"]::attr("name")')
-        attributes = element.get()
-        cdprocesso = attributes[0]
-        cdforo = attributes[1]
-        mnalias = attributes[2]
-        cddocumento = attributes[3]
-        url = f'https://esaj.tjsp.jus.br/cjpg/obterArquivo.do?cdProcesso={cdprocesso}&cdForo={cdforo}&nmAlias={mnalias}&cdDocumento={cddocumento}'
-        yield scrapy.Request(
-            url=url,
-            callback=self.pdf_viewer,
-            meta={
-                'process_number': self.process_number(process),
-                'cdprocesso': attributes[0],
-                'cddocumento': attributes[3]
-            })
-
     def pdf_viewer(self, response):
         html_script = response.css('script:contains("parametros")').get()
         match = re.search(r'"parametros":"([^"]*)"', html_script)
@@ -128,7 +121,7 @@ class LegalConsultationSpider(scrapy.Spider):
     def save_pdf(self, response):
         try:
             file_name = str(uuid.uuid4())
-            with open(os.path.join('pdfs', f'{file_name}.pdf'), 'wb') as pdf_file:
+            with open(f'{file_name}.pdf', 'wb') as pdf_file:
                 pdf_file.write(response.body)
 
             pdf_info = {
@@ -141,16 +134,16 @@ class LegalConsultationSpider(scrapy.Spider):
         except Exception as e:
             logging.warning(f'Error saving PDF: {e}')
 
-    def add_to_excel(self, pdf_info):
-        excel_file = 'pdf_info.xlsx'
+    def add_to_excel(self, pdf_info, file_name='pdf_info'):
+        csv_file = f'{file_name}.csv'
         try:
-            if os.path.exists(excel_file):
-                df = pd.read_excel(excel_file)
-                df = df.append(pdf_info, ignore_index=True)
+            if os.path.exists(csv_file):
+                df = pd.read_csv(csv_file)
+                df = pd.concat([df, pd.DataFrame([pdf_info])], ignore_index=True)
             else:
                 df = pd.DataFrame([pdf_info])
 
-            with pd.ExcelWriter(excel_file, engine='openpyxl', mode='w') as writer:
-                df.to_excel(writer, index=False)
+            df.to_csv(csv_file, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
         except Exception as e:
-            logging.error(f"Error occurred while adding PDF info to Excel: {e}")
+            logging.error(f"The error occurred while adding information from the PDF to the CSV. {e}")
+
