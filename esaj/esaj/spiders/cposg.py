@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import PyPDF4
+import pdfplumber
 import scrapy
 import re
 import uuid
@@ -9,7 +10,6 @@ import pandas as pd
 import csv
 import os
 from time import sleep
-import pdfplumber
 
 class CposgSpider(scrapy.Spider):
     name = "cposg"
@@ -18,14 +18,19 @@ class CposgSpider(scrapy.Spider):
     def start_requests(self):
         process_number = getattr(self, "process_number", None)
         url = "https://esaj.tjsp.jus.br/cposg/search.do"
-
         if process_number:
             parameters = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={process_number}&tipoNuProcesso=SAJ'
-            yield scrapy.Request(url + parameters, self.parse)
+            yield scrapy.Request(url + parameters, callback=self.parse)
         else:
             logging.warning('Process number is missing')
 
     def parse(self, response):
+        if response.css('.modal__lista-processos'):
+            code_process = response.css('.modal__lista-processos__item__header #processoSelecionado::attr("value")').get()
+            url = f'https://esaj.tjsp.jus.br/cposg/show.do?processo.codigo={code_process}'
+            yield scrapy.Request(url, callback=self.parse)
+            return
+
         data = {
             'numero_processo': response.css('#numeroProcesso::text').get().strip(),
             'situacao': response.css('#situacaoProcesso::text').get(default="").strip(),
@@ -53,7 +58,6 @@ class CposgSpider(scrapy.Spider):
                 f'&origemRecurso={resource_origin}&cdProcesso={process}'
             )
             sleep(3)
-            print(f'\n\n(parse)debugador: {document_origin} {process} {title} {description}\n\n')
             yield scrapy.Request(
                 url=url,
                 callback=self.open_pdf,
@@ -62,12 +66,12 @@ class CposgSpider(scrapy.Spider):
                     'cdprocesso': process,
                     'cddocumento': document_origin,
                     'title': title,
-                    'description': description
+                    'description': description,
+                    'timeout': 300
                 },
             )
 
     def open_pdf(self, response):
-        print(f'\n\n(open_pdf)debugador: {response.meta.get("title")} {response.meta.get("description")}\n\n')
         yield scrapy.Request(url=response.body.decode('utf-8'), callback=self.pdf_viewer, meta=response.meta)
 
     def first_instances(self, response):
@@ -87,7 +91,6 @@ class CposgSpider(scrapy.Spider):
         self.add_to_excel(data, 'first_instances')
 
     def pdf_viewer(self, response):
-        print(f'\n\n(pdf_viewer)debugador: {response.meta.get("title")} {response.meta.get("description")}\n\n')
         html_script = response.css('script:contains("parametros")').get()
         match = re.search(r'"parametros":"([^"]*)"', html_script)
         parameters = match.group(1) if match else None
@@ -96,7 +99,6 @@ class CposgSpider(scrapy.Spider):
         yield scrapy.Request(url=url, callback=self.save_pdf, meta=response.meta)
 
     def save_pdf(self, response):
-        print(f'\n\n(save_pdf)debugador: {response.meta.get("title")} {response.meta.get("description")}\n\n')
         try:
             file_name = str(uuid.uuid4())
             with open(f'{file_name}.pdf', 'wb') as pdf_file:
@@ -128,17 +130,9 @@ class CposgSpider(scrapy.Spider):
         except Exception as e:
             logging.error(f"The error occurred while adding information from the PDF to the CSV. {e}")
 
-    # def pdf_to_text(self, pdf_content):
-    #     with pdfplumber.open(BytesIO(pdf_content)) as pdf:
-    #         extracted_text = ""
-    #         for page in pdf.pages:
-    #             extracted_text += page.extract_text()
-    #         return extracted_text
-
     def pdf_to_text(self, pdf_content):
-        extracted_text = ""
-        pdf = PyPDF4.PdfFileReader(BytesIO(pdf_content))
-        for page_num in range(pdf.numPages):
-            page = pdf.getPage(page_num)
-            extracted_text += page.extractText()
-        return extracted_text
+        with pdfplumber.open(BytesIO(pdf_content)) as pdf:
+            extracted_text = ""
+            for page in pdf.pages:
+                extracted_text += page.extract_text()
+            return extracted_text
