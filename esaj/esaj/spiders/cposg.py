@@ -1,6 +1,5 @@
 from io import BytesIO
 
-import PyPDF4
 import pdfplumber
 import scrapy
 import re
@@ -18,11 +17,17 @@ class CposgSpider(scrapy.Spider):
     def start_requests(self):
         process_number = getattr(self, "process_number", None)
         url = "https://esaj.tjsp.jus.br/cposg/search.do"
+
         if process_number:
             parameters = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={process_number}&tipoNuProcesso=SAJ'
             yield scrapy.Request(url + parameters, callback=self.parse)
         else:
-            logging.warning('Process number is missing')
+            with open('data/cjsg.csv', 'r') as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    process_number = row['numero_processo']
+                    parameters = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={process_number}&tipoNuProcesso=SAJ'
+                    yield scrapy.Request(url + parameters, callback=self.parse)
 
     def parse(self, response):
         if response.css('.modal__lista-processos'):
@@ -78,17 +83,20 @@ class CposgSpider(scrapy.Spider):
         table = response.css('a[href*="esaj.tjsp.jus.br/cpopg/show.do?"]').xpath('ancestor::table')
         type = table.css('td:nth-child(1)').get('')
 
-        data = {
-            'numero_processo': response.css('#numeroProcesso::text').get().strip(),
-            'n_1_instancia': table.css('td:nth-child(1) a::text').get().strip(),
-            'tipo': re.search(r'\((.*?)\)', type).group(1) if re.search(r'\((.*?)\)', type) else None,
-            'foro': table.css('td:nth-child(2)::text').get().strip(),
-            'vara': table.css('td:nth-child(3)::text').get().strip(),
-            'juiz': table.css('td:nth-child(4)::text').get().strip(),
-            'obs': table.css('td:nth-child(5)::text').get().strip(),
-        }
+        try:
+            data = {
+                'numero_processo': response.css('#numeroProcesso::text').get().strip(),
+                'n_1_instancia': table.css('td:nth-child(1) a::text').get().strip(),
+                'tipo': re.search(r'\((.*?)\)', type).group(1) if re.search(r'\((.*?)\)', type) else None,
+                'foro': table.css('td:nth-child(2)::text').get().strip(),
+                'vara': table.css('td:nth-child(3)::text').get().strip(),
+                'juiz': table.css('td:nth-child(4)::text').get().strip(),
+                'obs': table.css('td:nth-child(5)::text').get().strip(),
+            }
+            self.add_to_excel(data, 'first_instances')
+        except Exception as e:
+            logging.warning(f'Error saving first instance data: {e}')
 
-        self.add_to_excel(data, 'first_instances')
 
     def pdf_viewer(self, response):
         html_script = response.css('script:contains("parametros")').get()
@@ -100,8 +108,12 @@ class CposgSpider(scrapy.Spider):
 
     def save_pdf(self, response):
         try:
+            data_folder = 'data/pdf/cposg'
+            if not os.path.exists(data_folder):
+                os.makedirs(data_folder)
+
             file_name = str(uuid.uuid4())
-            with open(f'{file_name}.pdf', 'wb') as pdf_file:
+            with open(f'{os.path.join(data_folder,file_name)}.pdf', 'wb') as pdf_file:
                 pdf_file.write(response.body)
 
             pdf_info = {
@@ -113,12 +125,16 @@ class CposgSpider(scrapy.Spider):
                 'processo': response.meta.get('cdprocesso'),
                 'conteudo': self.pdf_to_text(response.body)
             }
-            self.add_to_excel(pdf_info, 'moviments')
+            self.add_to_excel(pdf_info, 'cposg_moviments')
         except Exception as e:
             logging.warning(f'Error saving PDF: {e}')
 
     def add_to_excel(self, pdf_info, file_name='file'):
-        csv_file = f'{file_name}.csv'
+        data_folder = 'data'
+        if not os.path.exists(data_folder):
+            os.makedirs(data_folder)
+
+        csv_file = os.path.join(data_folder, f'{file_name}.csv')
         try:
             if os.path.exists(csv_file):
                 df = pd.read_csv(csv_file)
@@ -135,4 +151,12 @@ class CposgSpider(scrapy.Spider):
             extracted_text = ""
             for page in pdf.pages:
                 extracted_text += page.extract_text()
-            return extracted_text
+
+        extracted_text = ' '.join(extracted_text.split())
+        extracted_text = extracted_text.replace('\n', ' ')
+        extracted_text = extracted_text.replace('\t', '')
+
+        extracted_text = re.sub(r'[;,\'\"\r]', '', extracted_text)
+        extracted_text = re.sub(r'\s+', ' ', extracted_text)
+
+        return extracted_text

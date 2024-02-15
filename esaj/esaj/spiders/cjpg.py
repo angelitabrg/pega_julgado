@@ -1,6 +1,8 @@
 import os
+from io import BytesIO
 from time import sleep
 
+import pdfplumber
 import scrapy
 import urllib.parse
 import logging
@@ -120,22 +122,31 @@ class LegalConsultationSpider(scrapy.Spider):
 
     def save_pdf(self, response):
         try:
+            data_folder = 'data/pdf/cjpg'
+            if not os.path.exists(data_folder):
+                os.makedirs(data_folder)
+
             file_name = str(uuid.uuid4())
-            with open(f'{file_name}.pdf', 'wb') as pdf_file:
+            with open(f'{os.path.join(data_folder,file_name)}.pdf', 'wb') as pdf_file:
                 pdf_file.write(response.body)
 
             pdf_info = {
                 'pdf_name': file_name,
                 'process_number': response.meta.get('process_number'),
                 'cddocumento': response.meta.get('cddocumento'),
-                'cdprocesso': response.meta.get('cdprocesso')
+                'cdprocesso': response.meta.get('cdprocesso'),
+                'conteudo': self.pdf_to_text(response.body)
             }
-            self.add_to_excel(pdf_info)
+            self.add_to_excel(pdf_info, 'cjpg_pdf_info')
         except Exception as e:
             logging.warning(f'Error saving PDF: {e}')
 
     def add_to_excel(self, pdf_info, file_name='pdf_info'):
-        csv_file = f'{file_name}.csv'
+        data_folder = 'data'
+        if not os.path.exists(data_folder):
+            os.makedirs(data_folder)
+
+        csv_file = os.path.join(data_folder, f'{file_name}.csv')
         try:
             if os.path.exists(csv_file):
                 df = pd.read_csv(csv_file)
@@ -146,4 +157,19 @@ class LegalConsultationSpider(scrapy.Spider):
             df.to_csv(csv_file, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
         except Exception as e:
             logging.error(f"The error occurred while adding information from the PDF to the CSV. {e}")
+
+    def pdf_to_text(self, pdf_content):
+        with pdfplumber.open(BytesIO(pdf_content)) as pdf:
+            extracted_text = ""
+            for page in pdf.pages:
+                extracted_text += page.extract_text()
+
+        extracted_text = ' '.join(extracted_text.split())
+        extracted_text = extracted_text.replace('\n', ' ')
+        extracted_text = extracted_text.replace('\t', '')
+
+        extracted_text = re.sub(r'[;,\'\"\r]', '', extracted_text)
+        extracted_text = re.sub(r'\s+', ' ', extracted_text)
+
+        return extracted_text
 

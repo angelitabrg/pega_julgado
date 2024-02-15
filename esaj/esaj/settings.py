@@ -6,6 +6,7 @@
 #     https://docs.scrapy.org/en/latest/topics/settings.html
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
+import logging
 
 BOT_NAME = "esaj"
 
@@ -70,9 +71,9 @@ ROBOTSTXT_OBEY = False
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
 #AUTOTHROTTLE_ENABLED = True
 # The initial download delay
-#AUTOTHROTTLE_START_DELAY = 5
+AUTOTHROTTLE_START_DELAY = 120
 # The maximum download delay to be set in case of high latencies
-#AUTOTHROTTLE_MAX_DELAY = 60
+AUTOTHROTTLE_MAX_DELAY = 360
 # The average number of requests Scrapy should be sending in parallel to
 # each remote server
 #AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
@@ -95,3 +96,17 @@ FEED_EXPORT_ENCODING = "utf-8"
 LOG_ENABLED = True
 LOG_LEVEL = 'WARNING'
 LOG_FILE = 'scrapy_warnings.log'
+
+INFO_LOG_FILE = 'scrapy_info.log'
+info_logger = logging.getLogger('info_logger')
+info_logger.setLevel(logging.INFO)
+info_handler = logging.FileHandler(INFO_LOG_FILE)
+info_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s]: %(message)s'))
+info_logger.addHandler(info_handler)
+
+ERROR_LOG_FILE = 'scrapy_errors.log'
+error_logger = logging.getLogger('error_logger')
+error_logger.setLevel(logging.ERROR)
+error_handler = logging.FileHandler(ERROR_LOG_FILE)
+error_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s]: %(message)s'))
+error_logger.addHandler(error_handler)
