@@ -26,30 +26,47 @@ class CjsgSpider(scrapy.Spider):
     def parse(self, response):
         selector = response.meta.get('selector')
         for process in response.css(selector):
-            data = {
-                'numero_processo': process.css('a[title="Visualizar Inteiro Teor"]::text').get(default='').strip(),
-                'classe': self.get_detail(process, 'tr', 'Classe/Assunto:').split('/')[0].strip(),
-                'assunto': self.get_detail(process, 'tr', 'Classe/Assunto:').split('/')[1].strip(),
-                'relator_a': self.get_detail(process, 'tr', 'Relator(a):'),
-                'orgao_julgador': self.get_detail(process, 'tr', 'Órgão julgador:'),
-                'comarca': self.get_detail(process, 'tr', 'Comarca:'),
-                'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
-                'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
-                'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
-            }
-            self.add_to_excel(data, 'cjsg')
+            try:
+                data = {
+                    'numero_processo': process.css('a[title="Visualizar Inteiro Teor"]::text').get(default='').strip(),
+                    'classe': self.get_classe(process),
+                    'assunto': self.get_assunto(process),
+                    'relator_a': self.get_detail(process, 'tr', 'Relator(a):'),
+                    'orgao_julgador': self.get_detail(process, 'tr', 'Órgão julgador:'),
+                    'comarca': self.get_detail(process, 'tr', 'Comarca:'),
+                    'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
+                    'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
+                    'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
+                }
+                self.add_to_excel(data, 'cjsg')
+            except Exception as e:
+                logging.error(f"The error occurred while getting information from process data. message={e}")
 
-        logging.info(f"\nURL: {response.url}, Current page: {self.get_current_page(response)}, Has next page: {self.has_next_page(response)}")
+            logging.info(f"\nURL: {response.url}, Current page: {self.get_current_page(response)}, Has next page: {self.has_next_page(response)}")
 
-        if self.has_next_page(response):
-            sleep(3)
-            yield scrapy.Request(
-                url=f'https://esaj.tjsp.jus.br/cjsg/trocaDePagina.do?tipoDeDecisao=A&pagina={self.next_page(response)}',
-                headers={'Accept': 'text/html; charset=latin1;'},
-                cookies=self.set_cookies(response),
-                meta={'selector': 'table:first-of-type table'},
-                callback=self.parse
-            )
+            if self.has_next_page(response):
+                sleep(3)
+                yield scrapy.Request(
+                    url=f'https://esaj.tjsp.jus.br/cjsg/trocaDePagina.do?tipoDeDecisao=A&pagina={self.next_page(response)}',
+                    headers={'Accept': 'text/html; charset=latin1;'},
+                    cookies=self.set_cookies(response),
+                    meta={'selector': 'table:first-of-type table'},
+                    callback=self.parse
+                )
+
+    def get_assunto(self, process):
+        subject = self.get_detail(process, 'tr', 'Assunto:').split('/')
+        if len(subject) > 1:
+            return '|'.join(subject[1:]).strip()
+        else:
+            return subject[0]
+
+    def get_classe(self, process):
+        process_class = self.get_detail(process, 'tr', 'Classe/Assunto:').split('/')
+        if len(process_class) > 1:
+            return process_class[0].strip()
+        else:
+            return self.get_detail(process, 'tr', 'Classe:').strip()
 
     def set_cookies(self, response):
         cookies = {}
@@ -73,11 +90,12 @@ class CjsgSpider(scrapy.Spider):
     def get_detail(self, process, css_selector, search=''):
         element = process.css(f'{css_selector} :contains("{search}")')
         text = innertext_quick(element)[0]
-        if text.find(search) > -1:
-            pos = len(search)
+        text_pos = text.find(search)
+        if text_pos > -1:
+            init_pos = len(search)
         else:
-            pos = 0
-        final_text = text[pos:]
+            init_pos = 0
+        final_text = text[init_pos:]
         if final_text:
             return treatment(final_text).strip()
         return ''
@@ -97,4 +115,4 @@ class CjsgSpider(scrapy.Spider):
 
             df.to_csv(csv_file, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
         except Exception as e:
-            logging.error(f"The error occurred while adding information from the PDF to the CSV. {e}")
+            logging.error(f"The error occurred while adding information from the PDF to the CSV. message={e}")
