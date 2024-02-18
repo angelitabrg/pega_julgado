@@ -7,6 +7,7 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 import logging
+import sys
 
 BOT_NAME = "esaj"
 
@@ -26,7 +27,7 @@ ROBOTSTXT_OBEY = False
 # Configure a delay for requests for the same website (default: 0)
 # See https://docs.scrapy.org/en/latest/topics/settings.html#download-delay
 # See also autothrottle settings and docs
-#DOWNLOAD_DELAY = 3
+DOWNLOAD_DELAY = 3
 # The download delay setting will honor only one of:
 #CONCURRENT_REQUESTS_PER_DOMAIN = 16
 #CONCURRENT_REQUESTS_PER_IP = 16
@@ -93,20 +94,44 @@ REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
 
+DOWNLOADER_MIDDLEWARES = {
+    'esaj.middlewares.PdfDownloadDelayMiddleware': 543,
+}
+
+PDF_DOWNLOAD_DELAY = 3.0
+
 LOG_ENABLED = True
-LOG_LEVEL = 'WARNING'
-LOG_FILE = 'scrapy_warnings.log'
+LOG_LEVEL = 'DEBUG'
+LOG_FILE = 'scrapy.log'
 
-INFO_LOG_FILE = 'scrapy_info.log'
+logging.basicConfig(level=logging.INFO)
+
 info_logger = logging.getLogger('info_logger')
-info_logger.setLevel(logging.INFO)
-info_handler = logging.FileHandler(INFO_LOG_FILE)
-info_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s]: %(message)s'))
-info_logger.addHandler(info_handler)
+info_handler = logging.FileHandler('scrapy_info.log')
+info_handler.setLevel(logging.INFO)
 
-ERROR_LOG_FILE = 'scrapy_errors.log'
+info_handler_stdout = logging.StreamHandler(sys.stdout)
+info_handler_stdout.setLevel(logging.INFO)
+
+info_logger.addHandler(info_handler)
+info_logger.addHandler(info_handler_stdout)
+
+warning_logger = logging.getLogger('warning_logger')
+warning_handler = logging.FileHandler('scrapy_warnings.log')
+warning_handler.setLevel(logging.WARNING)
+
+warning_handler_stdout = logging.StreamHandler(sys.stderr)
+warning_handler_stdout.setLevel(logging.WARNING)
+
+warning_logger.addHandler(warning_handler)
+warning_logger.addHandler(warning_handler_stdout)
+
 error_logger = logging.getLogger('error_logger')
-error_logger.setLevel(logging.ERROR)
-error_handler = logging.FileHandler(ERROR_LOG_FILE)
-error_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s]: %(message)s'))
+error_handler = logging.FileHandler('scrapy_errors.log')
+error_handler.setLevel(logging.ERROR)
+
+error_handler_stdout = logging.StreamHandler(sys.stderr)
+error_handler_stdout.setLevel(logging.ERROR)
+
 error_logger.addHandler(error_handler)
+error_logger.addHandler(error_handler_stdout)

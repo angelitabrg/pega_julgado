@@ -20,24 +20,25 @@ class CposgSpider(scrapy.Spider):
 
         if process_number:
             parameters = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={process_number}&tipoNuProcesso=SAJ'
-            yield scrapy.Request(url + parameters, callback=self.parse)
+            yield scrapy.Request(url + parameters, callback=self.parse, meta={'process_number': process_number})
         else:
-            with open('data/cjsg.csv', 'r') as file:
+            with open('data/cjsg.csv', 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
                 for row in reader:
                     process_number = row['numero_processo']
                     parameters = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={process_number}&tipoNuProcesso=SAJ'
-                    yield scrapy.Request(url + parameters, callback=self.parse)
+                    yield scrapy.Request(url + parameters, callback=self.parse, meta={'process_number': process_number})
 
     def parse(self, response):
+        process_number = response.meta.get('process_number')
         if response.css('.modal__lista-processos'):
             code_process = response.css('.modal__lista-processos__item__header #processoSelecionado::attr("value")').get()
             url = f'https://esaj.tjsp.jus.br/cposg/show.do?processo.codigo={code_process}'
-            yield scrapy.Request(url, callback=self.parse)
+            yield scrapy.Request(url, callback=self.parse, meta={'process_number': process_number})
             return
-
+        breakpoint()
         data = {
-            'numero_processo': response.css('#numeroProcesso::text').get().strip(),
+            'numero_processo': process_number,
             'situacao': response.css('#situacaoProcesso::text').get(default="").strip(),
             'classe': response.css('#classeProcesso span::text').get(default="").strip(),
             'assunto': response.css('#assuntoProcesso span::text').get(default="").strip(),
@@ -51,43 +52,45 @@ class CposgSpider(scrapy.Spider):
         self.add_to_excel(data, 'cposg')
         self.first_instances(response)
 
-        link_movements = response.css('.descricaoMovimentacaoProcesso a.linkMovVincProc')
-        for link_movement in link_movements:
-            title = link_movement.css('::text').get(default="").strip()
-            description = link_movement.xpath('..').css('span::text').get(default="").strip()
-            document_origin = link_movement.attrib['cddocumento']
-            resource_origin = link_movement.attrib['name']
-            process = response.css('input[name="cdProcesso"]::attr(value)').get(default="")
-            url = (
-                f'https://esaj.tjsp.jus.br/cposg/verificarAcessoMovimentacao.do?cdDocumento={document_origin}'
-                f'&origemRecurso={resource_origin}&cdProcesso={process}'
-            )
-            sleep(3)
-            yield scrapy.Request(
-                url=url,
-                callback=self.open_pdf,
-                meta={
-                    'process_number': response.css('#numeroProcesso::text').get().strip(),
-                    'cdprocesso': process,
-                    'cddocumento': document_origin,
-                    'title': title,
-                    'description': description,
-                    'timeout': 300
-                },
-            )
+        # link_movements = response.css('.descricaoMovimentacaoProcesso a.linkMovVincProc')
+        # for link_movement in link_movements:
+        #     title = link_movement.css('::text').get(default="").strip()
+        #     description = link_movement.xpath('..').css('span::text').get(default="").strip()
+        #     document_origin = link_movement.attrib['cddocumento']
+        #     resource_origin = link_movement.attrib['name']
+        #     process = response.css('input[name="cdProcesso"]::attr(value)').get(default="")
+        #     url = (
+        #         f'https://esaj.tjsp.jus.br/cposg/verificarAcessoMovimentacao.do?cdDocumento={document_origin}'
+        #         f'&origemRecurso={resource_origin}&cdProcesso={process}'
+        #     )
+        #
+        #     yield scrapy.Request(
+        #         url=url,
+        #         callback=self.open_pdf,
+        #         meta={
+        #             'process_number': process_number,
+        #             'cdprocesso': process,
+        #             'cddocumento': document_origin,
+        #             'title': title,
+        #             'description': description,
+        #             'timeout': 300
+        #         },
+        #     )
 
     def open_pdf(self, response):
         yield scrapy.Request(url=response.body.decode('utf-8'), callback=self.pdf_viewer, meta=response.meta)
 
     def first_instances(self, response):
-        table = response.css('a[href*="esaj.tjsp.jus.br/cpopg/show.do?"]').xpath('ancestor::table')
+        table = response.css('table:contains("Nº de 1ª instância")').xpath('following-sibling::table[1]')
+        # response.css('table:contains("Nº de 1ª instância")').xpath('following-sibling::table[1]')
         type = table.css('td:nth-child(1)').get('')
-
+        process_number = response.meta.get('process_number')
         try:
+            breakpoint()
             data = {
                 'numero_processo': response.css('#numeroProcesso::text').get().strip(),
                 'n_1_instancia': table.css('td:nth-child(1) a::text').get().strip(),
-                'tipo': re.search(r'\((.*?)\)', type).group(1) if re.search(r'\((.*?)\)', type) else None,
+                'tipo': re.search(r'\((.*?)\)', type).group(1) if re.search(r'\((.*?)\)', type) else None, # Fix
                 'foro': table.css('td:nth-child(2)::text').get().strip(),
                 'vara': table.css('td:nth-child(3)::text').get().strip(),
                 'juiz': table.css('td:nth-child(4)::text').get().strip(),

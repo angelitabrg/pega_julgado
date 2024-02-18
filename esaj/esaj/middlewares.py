@@ -8,6 +8,18 @@ from scrapy import signals
 # useful for handling different item types with a single interface
 from itemadapter import is_item, ItemAdapter
 
+class PdfDownloadDelayMiddleware:
+    def __init__(self, delay):
+        self.delay = delay
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        delay = crawler.settings.getfloat('PDF_DOWNLOAD_DELAY', 3.0)
+        return cls(delay)
+
+    def process_request(self, request, spider):
+        if request.url.endswith('.pdf'):
+            time.sleep(self.delay)
 
 class EsajSpiderMiddleware:
     # Not all methods need to be defined. If a method is not defined,

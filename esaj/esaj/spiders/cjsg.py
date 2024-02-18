@@ -26,33 +26,28 @@ class CjsgSpider(scrapy.Spider):
     def parse(self, response):
         selector = response.meta.get('selector')
         for process in response.css(selector):
-            try:
-                data = {
-                    'numero_processo': process.css('a[title="Visualizar Inteiro Teor"]::text').get(default='').strip(),
-                    'classe': self.get_classe(process),
-                    'assunto': self.get_assunto(process),
-                    'relator_a': self.get_detail(process, 'tr', 'Relator(a):'),
-                    'orgao_julgador': self.get_detail(process, 'tr', 'Órgão julgador:'),
-                    'comarca': self.get_detail(process, 'tr', 'Comarca:'),
-                    'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
-                    'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
-                    'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
-                }
-                self.add_to_excel(data, 'cjsg')
-            except Exception as e:
-                logging.error(f"The error occurred while getting information from process data. message={e}")
+            data = {
+                'numero_processo': process.css('a[title="Visualizar Inteiro Teor"]::text').get(default='').strip(),
+                'classe': self.get_classe(process),
+                'assunto': self.get_assunto(process),
+                'relator_a': self.get_detail(process, 'tr', 'Relator(a):'),
+                'orgao_julgador': self.get_detail(process, 'tr', 'Órgão julgador:'),
+                'comarca': self.get_detail(process, 'tr', 'Comarca:'),
+                'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
+                'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
+                'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
+            }
+            self.add_to_excel(data, 'cjsg')
 
-            logging.info(f"\nURL: {response.url}, Current page: {self.get_current_page(response)}, Has next page: {self.has_next_page(response)}")
-
-            if self.has_next_page(response):
-                sleep(3)
-                yield scrapy.Request(
-                    url=f'https://esaj.tjsp.jus.br/cjsg/trocaDePagina.do?tipoDeDecisao=A&pagina={self.next_page(response)}',
-                    headers={'Accept': 'text/html; charset=latin1;'},
-                    cookies=self.set_cookies(response),
-                    meta={'selector': 'table:first-of-type table'},
-                    callback=self.parse
-                )
+        logging.info(f"\nURL: {response.url}, Current page: {self.get_current_page(response)}, Has next page: {self.has_next_page(response)}")
+        if self.has_next_page(response):
+            yield scrapy.Request(
+                url=f'https://esaj.tjsp.jus.br/cjsg/trocaDePagina.do?tipoDeDecisao=A&pagina={self.next_page(response)}',
+                headers={'Accept': 'text/html; charset=latin1;'},
+                cookies=self.set_cookies(response),
+                meta={'selector': 'table:first-of-type table'},
+                callback=self.parse
+            )
 
     def get_assunto(self, process):
         subject = self.get_detail(process, 'tr', 'Assunto:').split('/')
