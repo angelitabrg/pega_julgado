@@ -1,6 +1,5 @@
 import os
 from io import BytesIO
-from time import sleep
 
 import pdfplumber
 import scrapy
@@ -15,54 +14,69 @@ from esaj.spiders.helpers.innertext import innertext_quick
 from esaj.spiders.helpers.treatment import treatment
 
 
-class LegalConsultationSpider(scrapy.Spider):
+class CjpgSpider(scrapy.Spider):
     name = "cjpg"
     allowed_domains = ["esaj.tjsp.jus.br"]
 
+    def __init__(self, search, page=None, *args, **kwargs):
+        super(CjpgSpider, self).__init__(*args, **kwargs)
+        self.search = search
+        self.page = page
+
     def start_requests(self):
-        search = getattr(self, "search", None)
-        if search is not None:
-            url = f'https://esaj.tjsp.jus.br/cjpg/pesquisar.do?conversationId=&dadosConsulta.pesquisaLivre={urllib.parse.quote(search)}&tipoNumero=UNIFICADO&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dadosConsulta.nuProcesso=&dadosConsulta.nuProcessoAntigo=&classeTreeSelection.values=&classeTreeSelection.text=&assuntoTreeSelection.values=&assuntoTreeSelection.text=&agenteSelectedEntitiesList=&contadoragente=0&contadorMaioragente=0&cdAgente=&nmAgente=&dadosConsulta.dtInicio=&dadosConsulta.dtFim=09%2F02%2F2024&varasTreeSelection.values=&varasTreeSelection.text=&dadosConsulta.ordenacao=DESC'
+        if self.search is not None:
+            url = f'https://esaj.tjsp.jus.br/cjpg/pesquisar.do?conversationId=&dadosConsulta.pesquisaLivre={urllib.parse.quote(self.search)}&tipoNumero=UNIFICADO&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dadosConsulta.nuProcesso=&dadosConsulta.nuProcessoAntigo=&classeTreeSelection.values=&classeTreeSelection.text=&assuntoTreeSelection.values=&assuntoTreeSelection.text=&agenteSelectedEntitiesList=&contadoragente=0&contadorMaioragente=0&cdAgente=&nmAgente=&dadosConsulta.dtInicio=&dadosConsulta.dtFim=09%2F02%2F2024&varasTreeSelection.values=&varasTreeSelection.text=&dadosConsulta.ordenacao=DESC'
             yield scrapy.Request(url, self.parse)
         else:
             logging.warning(f'The search does not found. method: start_requests')
             return
 
     def parse(self, response):
-        for process in response.css('#tdResultados table table'):
-            data = {
-                'numero_processo': self.process_number(process),
-                'classe': self.get_detail(process, 'tr', 'Classe:').strip(),
-                'assunto': self.get_detail(process, 'tr', 'Assunto:').strip(),
-                'magistrado': self.get_detail(process, 'tr', 'Magistrado:'),
-                'foro': self.get_detail(process, 'tr', 'Foro:'),
-                'vara': self.get_detail(process, 'tr', 'Vara:'),
-                'data_disponibilizacao': self.get_detail(process, 'tr', 'Data de Disponibilização:'),
-                'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
-            }
-            self.add_to_excel(data, 'cjpg')
-
-            sleep(5)
-            attributes = process.css('a[title="Visualizar Inteiro Teor"]::attr("name")').get().split('-')
-            cdprocesso = attributes[0]
-            cdforo = attributes[1]
-            mnalias = attributes[2]
-            cddocumento = attributes[3]
-            url = f'https://esaj.tjsp.jus.br/cjpg/obterArquivo.do?cdProcesso={cdprocesso}&cdForo={cdforo}&nmAlias={mnalias}&cdDocumento={cddocumento}'
+        if self.page and 'https://esaj.tjsp.jus.br/cjpg/pesquisar.do?conversationId=&dadosConsulta.pesquisaLivre' in response.url:
+            breakpoint()
             yield scrapy.Request(
-                url=url,
-                meta={
-                    'process_number': self.process_number(process),
-                    'cdprocesso': cdprocesso,
-                    'cddocumento': cddocumento
-                },
-                callback=self.pdf_viewer
+                url=f'https://esaj.tjsp.jus.br/cjpg/trocarDePagina.do?pagina={self.page}',
+                headers={'Accept': 'text/html; charset=latin1;'},
+                cookies=self.set_cookies(response),
+                callback=self.parse
             )
+            return
+
+        for process in response.css('#tdResultados table table'):
+            try:
+                data = {
+                    'numero_processo': self.process_number(process),
+                    'classe': self.get_detail(process, 'tr', 'Classe:').strip(),
+                    'assunto': self.get_detail(process, 'tr', 'Assunto:').strip(),
+                    'magistrado': self.get_detail(process, 'tr', 'Magistrado:'),
+                    'foro': self.get_detail(process, 'tr', 'Foro:'),
+                    'vara': self.get_detail(process, 'tr', 'Vara:'),
+                    'data_disponibilizacao': self.get_detail(process, 'tr', 'Data de Disponibilização:'),
+                    'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
+                }
+                self.add_to_excel(data, 'cjpg')
+
+                attributes = process.css('a[title="Visualizar Inteiro Teor"]::attr("name")').get().split('-')
+                cdprocesso = attributes[0]
+                cdforo = attributes[1]
+                mnalias = attributes[2]
+                cddocumento = attributes[3]
+                url = f'https://esaj.tjsp.jus.br/cjpg/obterArquivo.do?cdProcesso={cdprocesso}&cdForo={cdforo}&nmAlias={mnalias}&cdDocumento={cddocumento}'
+                yield scrapy.Request(
+                    url=url,
+                    meta={
+                        'process_number': self.process_number(process),
+                        'cdprocesso': cdprocesso,
+                        'cddocumento': cddocumento
+                    },
+                    callback=self.pdf_viewer
+                )
+            except Exception as e:
+                logging.warning(f'Error saving process data: message={e}')
 
         logging.info(f"\nURL: {response.url}, Current page: {self.get_current_page(response)}, Has next page: {self.has_next_page(response)}")
 
         if self.has_next_page(response):
-            sleep(3)
             yield scrapy.Request(
                 url=f'https://esaj.tjsp.jus.br/cjpg/trocarDePagina.do?pagina={self.next_page(response)}',
                 headers={'Accept': 'text/html; charset=latin1;'},
