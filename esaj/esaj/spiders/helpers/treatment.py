@@ -1,3 +1,3 @@
 import re
 def treatment(text):
-    return re.sub(r'([\n\r\t]+)', r'', text).strip()
+    return re.sub(r'[\n\r\t\s]+', ' ', text).strip()

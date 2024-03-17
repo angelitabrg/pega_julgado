@@ -33,7 +33,6 @@ class CjpgSpider(scrapy.Spider):
 
     def parse(self, response):
         if self.page and 'https://esaj.tjsp.jus.br/cjpg/pesquisar.do?conversationId=&dadosConsulta.pesquisaLivre' in response.url:
-            breakpoint()
             yield scrapy.Request(
                 url=f'https://esaj.tjsp.jus.br/cjpg/trocarDePagina.do?pagina={self.page}',
                 headers={'Accept': 'text/html; charset=latin1;'},
