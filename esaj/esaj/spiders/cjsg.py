@@ -25,21 +25,28 @@ class CjsgSpider(scrapy.Spider):
 
     def parse(self, response):
         selector = response.meta.get('selector')
-        for process in response.css(selector):
-            data = {
-                'numero_processo': process.css('a[title="Visualizar Inteiro Teor"]::text').get(default='').strip(),
-                'classe': self.get_classe(process),
-                'assunto': self.get_assunto(process),
-                'relator_a': self.get_detail(process, 'tr', 'Relator(a):'),
-                'orgao_julgador': self.get_detail(process, 'tr', 'Órgão julgador:'),
-                'comarca': self.get_detail(process, 'tr', 'Comarca:'),
-                'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
-                'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
-                'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
-            }
-            self.add_to_excel(data, 'cjsg')
 
-        logging.info(f"\nURL: {response.url}, Current page: {self.get_current_page(response)}, Has next page: {self.has_next_page(response)}")
+        try:
+            for process in response.css(selector):
+                data = {
+                    'numero_processo': process.css('a[title="Visualizar Inteiro Teor"]::text').get(default='').strip(),
+                    'classe': self.get_classe(process),
+                    'assunto': self.get_assunto(process),
+                    'relator_a': self.get_detail(process, 'tr', 'Relator(a):'),
+                    'orgao_julgador': self.get_detail(process, 'tr', 'Órgão julgador:'),
+                    'comarca': self.get_detail(process, 'tr', 'Comarca:'),
+                    'data_julgamento': self.get_detail(process, 'tr', 'Data do julgamento:'),
+                    'data_publicacao': self.get_detail(process, 'tr', 'Data de publicação:'),
+                    'ementa': treatment(innertext_quick(process.css('tr:last-child div:last-child'))[0]).strip(),
+                }
+                self.add_to_csv(data, 'cjsg')
+
+            logging.info(
+                f"\nURL: {response.url}, Current page: {self.get_current_page(response)}, Has next page: {self.has_next_page(response)}")
+        except Exception as e:
+            logging.error(f"The error occurred while extracting information. message={e}")
+
+
         if self.has_next_page(response):
             yield scrapy.Request(
                 url=f'https://esaj.tjsp.jus.br/cjsg/trocaDePagina.do?tipoDeDecisao=A&pagina={self.next_page(response)}',
@@ -76,7 +83,7 @@ class CjsgSpider(scrapy.Spider):
             return True
 
     def get_current_page(self, response):
-        return int(response.css('.trocaDePagina .paginaAtual::text').get().strip())
+        return int(response.css('.trocaDePagina .paginaAtual::text').get("").strip())
 
     def next_page(self, response):
         return self.get_current_page(response) + 1
@@ -95,8 +102,8 @@ class CjsgSpider(scrapy.Spider):
             return treatment(final_text).strip()
         return ''
 
-    def add_to_excel(self, pdf_info, file_name='pdf_info'):
-        data_folder = 'data'
+    def add_to_csv(self, data, file_name):
+        data_folder = 'data/sp'
         if not os.path.exists(data_folder):
             os.makedirs(data_folder)
 
@@ -104,9 +111,11 @@ class CjsgSpider(scrapy.Spider):
         try:
             if os.path.exists(csv_file):
                 df = pd.read_csv(csv_file)
-                df = pd.concat([df, pd.DataFrame([pdf_info])], ignore_index=True)
+                if not data['numero_processo'] in df['numero_processo'].values:
+                    df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
+
             else:
-                df = pd.DataFrame([pdf_info])
+                df = pd.DataFrame([data])
 
             df.to_csv(csv_file, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
         except Exception as e:

@@ -7,13 +7,13 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 import logging
+import os
 import sys
 
 BOT_NAME = "esaj"
 
 SPIDER_MODULES = ["esaj.spiders"]
 NEWSPIDER_MODULE = "esaj.spiders"
-
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
 #USER_AGENT = "esaj (+http://www.yourdomain.com)"
@@ -101,10 +101,10 @@ DOWNLOADER_MIDDLEWARES = {
 PDF_DOWNLOAD_DELAY = 3.0
 
 LOG_ENABLED = True
-LOG_LEVEL = 'DEBUG'
+LOG_LEVEL = 'WARNING'
 LOG_FILE = 'scrapy.log'
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.ERROR)
 
 info_logger = logging.getLogger('info_logger')
 info_handler = logging.FileHandler('scrapy_info.log')
@@ -134,4 +134,3 @@ error_handler_stdout = logging.StreamHandler(sys.stderr)
 error_handler_stdout.setLevel(logging.ERROR)
 
 error_logger.addHandler(error_handler)
-error_logger.addHandler(error_handler_stdout)

@@ -1,9 +1,17 @@
 # Legal Consultation
 ## How to make a legal consultation?
 ### To CJPG
-    scrapy crawl cjpg -o cjpg.csv -a instance=cjpg -a search='your search'
+    scrapy crawl cjpg -a search='"LGPD" OU "Lei Geral de Proteção de Dados Pessoais" OU "13.709"'
 ### To CJSG
-    scrapy crawl cjsg -o cjsg.csv -a instance=cjsg -a search='your search'
+```bash
+    scrapy crawl cjsg -a search='"LGPD" OU "Lei Geral de Proteção de Dados Pessoais" OU "13.709"'
+```
+# testing
+```bash
+    scrapy crawl cjsg -a search='"ovni"'
+```
+
+
 ## TODO:
 - [ ] Add _inteiro teor_ download (Because they don't have reecaptcha).
 
