@@ -9,6 +9,7 @@ import uuid
 import re
 import pandas as pd
 import csv
+import traceback
 
 from esaj.spiders.helpers.innertext import innertext_quick
 from esaj.spiders.helpers.treatment import treatment
@@ -43,9 +44,9 @@ class CjpgSpider(scrapy.Spider):
 
         for process in response.css('#tdResultados table table'):
             try:
-                process_number = self.process_number(process)
+                numero_processo = self.numero_processo(process)
                 data = {
-                    'numero_processo': process_number,
+                    'numero_processo': numero_processo,
                     'classe': self.get_detail(process, 'tr', 'Classe:').strip(),
                     'assunto': self.get_detail(process, 'tr', 'Assunto:').strip(),
                     'magistrado': self.get_detail(process, 'tr', 'Magistrado:'),
@@ -56,7 +57,7 @@ class CjpgSpider(scrapy.Spider):
                 }
                 self.add_to_excel(data, 'cjpg')
 
-                if not self.process_and_content_exists_in_csv(process_number):
+                if not self.process_and_content_exists_in_csv(numero_processo):
                     attributes = process.css('a[title="Visualizar Inteiro Teor"]::attr("name")').get().split('-')
                     cdprocesso = attributes[0]
                     cdforo = attributes[1]
@@ -66,7 +67,7 @@ class CjpgSpider(scrapy.Spider):
                     yield scrapy.Request(
                         url=url,
                         meta={
-                            'process_number': process_number,
+                            'numero_processo': numero_processo,
                             'cdprocesso': cdprocesso,
                             'cddocumento': cddocumento
                         },
@@ -93,20 +94,20 @@ class CjpgSpider(scrapy.Spider):
             cookies[key] = value.split(';', 1)[0]
         return cookies
 
-    def process_and_content_exists_in_csv(self, process_number):
+    def process_and_content_exists_in_csv(self, numero_processo):
         data_folder = 'data'
         csv_file = os.path.join(data_folder, 'cjpg_pdf_info.csv')
         if os.path.exists(csv_file):
             df = pd.read_csv(csv_file)
-            if process_number in df['process_number'].values:
-                row = df.loc[df['process_number'] == process_number]
+            if numero_processo in df['numero_processo'].values:
+                row = df.loc[df['numero_processo'] == numero_processo]
                 if pd.notnull(row['conteudo']).all():
-                    logging.info(f"[Pass]Process number {process_number} already has content in CSV.")
+                    logging.info(f"[Pass]Process number {numero_processo} already has content in CSV.")
                     return True
                 else:
-                    logging.info(f"[Not pass]Process number {process_number} does not have content in CSV.")
+                    logging.info(f"[Not pass]Process number {numero_processo} does not have content in CSV.")
             else:
-                logging.info(f"[Not pass]Process number {process_number} not found in CSV.")
+                logging.info(f"[Not pass]Process number {numero_processo} not found in CSV.")
         return False
 
     def has_next_page(self, response):
@@ -119,13 +120,13 @@ class CjpgSpider(scrapy.Spider):
     def next_page(self, response):
         return self.get_current_page(response) + 1
 
-    def process_number(self, process):
+    def numero_processo(self, process):
         element = process.css(f'a[title="Visualizar Inteiro Teor"]')
         text = innertext_quick(element)[0]
         if text is not None:
             return text.strip()
         else:
-            logging.warning('Process number was not found.')
+            logging.warning('O numero do processo nao foi encontrado.')
 
     def get_detail(self, process, css_selector, search=''):
         element = process.css(f'{css_selector} :contains("{search}")')
@@ -161,23 +162,23 @@ class CjpgSpider(scrapy.Spider):
             with open(f'{os.path.join(data_folder,file_name)}.pdf', 'wb') as pdf_file:
                 pdf_file.write(response.body)
 
-            content = ''
+            conteudo = ''
 
             try:
-                content = self.pdf_to_text(response.body)
+                conteudo = self.pdf_to_text(response.body)
             except Exception as e:
-                logging.error(f"The error when get content. {e}")
+                logging.error(f"Ocorreu um erro quando tentava pegar o conteúdo. mensagem_erro: {e}\n{traceback.format_exc()}")
 
             pdf_info = {
                 'pdf_name': file_name,
-                'process_number': response.meta.get('process_number'),
+                'numero_processo': response.meta.get('numero_processo'),
                 'cddocumento': response.meta.get('cddocumento'),
                 'cdprocesso': response.meta.get('cdprocesso'),
-                'conteudo': content
+                'conteudo': conteudo
             }
             self.add_to_excel(pdf_info, 'cjpg_pdf_info')
         except Exception as e:
-            logging.warning(f'Error saving PDF: {e}')
+            logging.warning(f'Erro ao salvar o PDF: {e}')
 
     def add_to_excel(self, data, file_name):
         data_folder = 'data'
@@ -188,9 +189,9 @@ class CjpgSpider(scrapy.Spider):
         try:
             if os.path.exists(csv_file):
                 df = pd.read_csv(csv_file)
-                if data['process_number'] in df['process_number'].values:
-                    row_index = df[df['process_number'] == data['process_number']].index[0]
-                    if pd.isnull(df.at[row_index, 'conteudo']):
+                if data['numero_processo'] in df['numero_processo'].values:
+                    row_index = df[df['numero_processo'] == data['numero_processo']].index[0]
+                    if 'conteudo' in df.columns and pd.isnull(df.at[row_index, 'conteudo']):
                         df.at[row_index, 'conteudo'] = data['conteudo']
                         df.at[row_index, 'pdf_name'] = data['pdf_name']
                 else:
@@ -200,8 +201,8 @@ class CjpgSpider(scrapy.Spider):
 
             df.to_csv(csv_file, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
         except Exception as e:
-            logging.error(f"The error occurred while adding information from the PDF to the CSV. {e}")
-
+            logging.error(
+                f"Ocorreu um erro ao adicionar informações do PDF ao CSV. mensagem_erro: {e}\n{traceback.format_exc()}")
     def pdf_to_text(self, pdf_content):
         with pdfplumber.open(BytesIO(pdf_content)) as pdf:
             extracted_text = ""
