@@ -16,7 +16,7 @@ class CposgSpider(scrapy.Spider):
     name = "cposg"
     allowed_domains = ["esaj.tjsp.jus.br"]
 
-
+    # TODO: Adicionar buscar por URL
     def start_requests(self):
         process_number = getattr(self, "process_number", None)
         url_base = "https://esaj.tjsp.jus.br/cposg/search.do"
@@ -27,7 +27,7 @@ class CposgSpider(scrapy.Spider):
 
             yield scrapy.Request(url, callback=self.parse, meta={'process_number': process_number})
         else:
-            with open('data/sp/cjsg.csv', 'r', encoding='utf-8') as file:
+            with open('data/cjsg.csv', 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
                 for row in reader:
                     process_number = row['numero_processo']
@@ -71,7 +71,7 @@ class CposgSpider(scrapy.Spider):
                 f'&origemRecurso={resource_origin}&cdProcesso={process}'
             )
 
-            if process_and_document_exist_in_csv(process_number, document_origin, 'data/sp/cposg/cposg_moviments.csv'):
+            if self.process_and_document_exist_in_csv(process_number, document_origin, 'data/cposg/cposg_moviments.csv'):
                 yield scrapy.Request(
                     url=url,
                     callback=self.open_pdf,
@@ -131,7 +131,7 @@ class CposgSpider(scrapy.Spider):
 
     def save_pdf(self, response):
         try:
-            data_folder = 'data/sp/cposg/pdf'
+            data_folder = 'data/cposg/pdf'
             if not os.path.exists(data_folder):
                 os.makedirs(data_folder)
 
@@ -157,7 +157,7 @@ class CposgSpider(scrapy.Spider):
             logging.error(f'Error saving PDF: {e}')
 
     def add_to_csv(self, data, file_name):
-        data_folder = 'data/sp/cposg'
+        data_folder = 'data/cposg'
         if not os.path.exists(data_folder):
             os.makedirs(data_folder)
 
@@ -199,7 +199,7 @@ class CposgSpider(scrapy.Spider):
 
 
     def check_moviments_exists_in_csv(self, process_number, document_number):
-        csv_file = 'data/sp/cposg/cposg.csv'
+        csv_file = 'data/cposg/cposg.csv'
         if os.path.exists(csv_file):
             df = pd.read_csv(csv_file)
             return df.apply(self.check_process_and_document_and_content, axis=1,

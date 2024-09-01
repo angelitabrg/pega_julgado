@@ -3,45 +3,47 @@ from io import BytesIO
 import pdfplumber
 import scrapy
 import re
-import uuid
 import logging
 import pandas as pd
 import csv
 import os
-from time import sleep
+import traceback
+
+from bs4 import BeautifulSoup
 from esaj.spiders.helpers.innertext import innertext_quick
 from esaj.spiders.helpers.treatment import treatment
 
 class CpopgSpider(scrapy.Spider):
     name = "cpopg"
     allowed_domains = ["esaj.tjsp.jus.br"]
+    url_base = "https://esaj.tjsp.jus.br/cpopg"
 
     def start_requests(self):
-        process_number = getattr(self, "process_number", None)
+        numero_processo = getattr(self, "numero_processo", None)
         url = "https://esaj.tjsp.jus.br/cpopg/search.do"
 
-        if process_number:
-            parameters = f'?conversationId=&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dadosConsulta.valorConsultaNuUnificado=&dadosConsulta.valorConsultaNuUnificado=UNIFICADO&dadosConsulta.valorConsulta={process_number}&dadosConsulta.tipoNuProcesso=SAJ'
-            yield scrapy.Request(url + parameters, callback=self.parse, meta={'process_number': process_number})
+        if numero_processo:
+            parametros = f'?conversationId=&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dadosConsulta.valorConsultaNuUnificado=&dadosConsulta.valorConsultaNuUnificado=UNIFICADO&dadosConsulta.valorConsulta={numero_processo}&dadosConsulta.tipoNuProcesso=SAJ'
+            yield scrapy.Request(url + parametros, callback=self.parse, meta={'numero_processo': numero_processo})
         else:
-            with open('data/cjpg_process_number.csv', 'r', encoding='utf-8') as file:
-                reader = csv.DictReader(file)
-                for row in reader:
-                    process_number = row['numero_processo']
-                    parameters = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={process_number}&tipoNuProcesso=SAJ'
-                    yield scrapy.Request(url + parameters, callback=self.parse, meta={'process_number': process_number})
+            with open('data/cjpg.csv', 'r', encoding='utf-8') as file:
+                leitor = csv.DictReader(file)
+                for linha in leitor:
+                    numero_processo = linha['numero_processo']
+                    parametros = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={numero_processo}&tipoNuProcesso=SAJ'
+                    yield scrapy.Request(url + parametros, callback=self.parse, meta={'numero_processo': numero_processo})
 
     def parse(self, response):
-        process_number = response.meta.get('process_number')
+        numero_processo = response.meta.get('numero_processo')
         if response.css('.modal__lista-processos'):
             code_process = response.css('.modal__lista-processos__item__header #processoSelecionado::attr("value")').get('')
             url = f'https://esaj.tjsp.jus.br/cpopg/show.do?processo.codigo={code_process}'
-            yield scrapy.Request(url, callback=self.parse, meta={'process_number': process_number})
+            yield scrapy.Request(url, callback=self.parse, meta={'numero_processo': numero_processo})
             return
 
         data = {
-            'numero_processo': process_number,
-            'situacao': response.css('#situacaoProcesso::text,.unj-tag::text').get(default="").strip(),
+            'numero_processo': numero_processo,
+            'situacao': '|'.join(response.css('.unj-tag::text').getall()).strip(),
             'classe': response.css('#classeProcesso span::text,#classeProcesso::text').get(default="").strip(),
             'assunto': response.css('#assuntoProcesso span::text,#assuntoProcesso::text').get(default="").strip(),
             'area': innertext_quick(response.css('#areaProcesso'))[0],
@@ -49,71 +51,142 @@ class CpopgSpider(scrapy.Spider):
             'valor_acao': treatment(response.css('#valorAcaoProcesso span::text,#valorAcaoProcesso::text').get(default="").strip()),
             'foro': response.css('#foroProcesso::text').get(default="").strip(),
             'vara': response.css('#varaProcesso::text').get(default="").strip(),
+            'distribuicao': response.css('#dataHoraDistribuicaoProcesso::text').get(default="").strip(),
+            'controle': response.css('#numeroControleProcesso::text').get(default="").strip(),
+            'partes_processo_1_tipo_participacao': response.css('.mensagemExibindo.tipoDeParticipacao::text').getall()[0].strip()  if len(self.extrair_partes_advogados(response)) > 0 else '',
+            'partes_processo_1_nome_parte': '|'.join(self.extrair_partes_advogados(response)[0]['nomes_parte']) if len(self.extrair_partes_advogados(response)) > 0 else '',
+            'partes_processo_1_advogados': '|'.join(self.extrair_partes_advogados(response)[0]['advogados_parte']) if len(self.extrair_partes_advogados(response)) > 0 else '',
+            'partes_processo_2_tipo_participacao': response.css('.mensagemExibindo.tipoDeParticipacao::text').getall()[1].strip() if len(self.extrair_partes_advogados(response)) > 1 else '',
+            'partes_processo_2_nome_parte': '|'.join(self.extrair_partes_advogados(response)[1]['nomes_parte']) if len(self.extrair_partes_advogados(response)) > 1 else '',
+            'partes_processo_2_advogados': '|'.join(self.extrair_partes_advogados(response)[1]['advogados_parte']) if len(self.extrair_partes_advogados(response)) > 1 else '',
+            'outros_assuntos': response.xpath('//div[contains(@class, "col-lg-2 mb-2")][.//span[contains(@class, "unj-label") and contains(text(), "Outros assuntos")]]//div[@class="line-clamp__2"]/span/text()').get(),
+            'execucao_sentenca': re.sub(r'\s*\(.*?\)\s*', '', response.xpath('//div[contains(@class, "col-lg-12 col-xl-13")][.//span[contains(@class, "unj-label") and contains(text(), "Execução de Sentença")]]//div/span[contains(@class, "unj-larger")]/text()').get(default="").strip()),
+            'processo_principal': response.xpath('//div[contains(@class, "col-lg-4 col-xl-3 mb-2")][.//span[contains(@class, "unj-label") and contains(text(), "Processo principal")]]//div/a/text()').get(),
+            'link_processo_principal': self.link_processo_principal(response),
+            'numero_processo_apensado': self.numero_processo_apensado(response),
+            'link_processo_apensado': self.link_processo_apensado(response),
+            'link_consulta_sg': self.link_consulta_sg(response),
         }
-        self.add_to_csv(data, 'cpopg')
+        self.adicionar_csv(data, 'cpopg')
 
-    def open_pdf(self, response):
-        yield scrapy.Request(url=response.body.decode('utf-8'), callback=self.pdf_viewer, meta=response.meta)
+        apensos_entranhados_unificados = self.extrair_incidentes_acoes_recursos_execucoes(response, numero_processo)
+        for apenso_entranhado_unificado in apensos_entranhados_unificados:
+            self.adicionar_csv(apenso_entranhado_unificado, 'cpopg_extrair_incidentes_acoes_recursos_execucoes')
 
-    def pdf_viewer(self, response):
-        html_script = response.css('script:contains("parametros")').get('')
-        match = re.search(r'"parametros":"([^"]*)"', html_script)
-        parameters = match.group(1) if match else None
+        movements = self.extrair_movimentos(response, numero_processo)
+        for movement in movements:
+            self.adicionar_csv(movement, 'cpopg_movimentacoes_primeiro_grau')
 
-        url = (f'https://esaj.tjsp.jus.br/pastadigital/getPDF.do?{parameters}')
-        yield scrapy.Request(url=url, callback=self.save_pdf, meta=response.meta)
+    def link_processo_principal(self, response):
+        link_relativo = response.xpath('//div[contains(@class, "col-lg-4 col-xl-3 mb-2")][.//span[contains(@class, "unj-label") and contains(text(), "Processo principal")]]//div/a/@href').get()
+        if link_relativo:
+            return f"{self.url_base}{link_relativo}"
+        return None
 
-    def save_pdf(self, response):
-        try:
-            data_folder = 'data/pdf/cpopg'
-            if not os.path.exists(data_folder):
-                os.makedirs(data_folder)
+    def extrair_incidentes_acoes_recursos_execucoes(self, response, numero_processo):
+        incidentes = []
+        linhas = [linha for linha in response.css('tr') if linha.css('td .incidente')]
+        for linha in linhas:
+            data_incidente = linha.css('td[width="140"]::text').get(default="").strip()
+            link_processo = linha.css('a.incidente::attr(href)').get(default="").strip()
+            link_processo = f"{self.url_base}{link_processo}" if link_processo else ""
+            incidente_text = linha.css('a.incidente::text').get(default="").strip()
 
-            file_name = str(uuid.uuid4())
-            with open(f'{os.path.join(data_folder,file_name)}.pdf', 'wb') as pdf_file:
-                pdf_file.write(response.body)
+            incidente_text = re.sub(r'\s*\(.*?\)\s*', '', incidente_text).strip()
 
-            pdf_info = {
-                'pdf_name': file_name,
-                'numero_processo': response.meta.get('process_number'),
-                'documento': response.meta.get('cddocumento'),
-                'titulo': response.meta.get('title'),
-                'descricao': response.meta.get('description'),
-                'processo': response.meta.get('cdprocesso'),
-                'conteudo': self.pdf_to_text(response.body)
+            titulo_incidente = incidente_text
+            numero_processo_incidentes_acoes_recursos_execucoes = re.search(r'\((.*?)\)', linha.css('a.incidente').get()).group(1) if linha.css(
+                'a.incidente').get() else ""
+
+            incidente = {
+                'numero_processo': numero_processo,
+                'recebido_em': data_incidente,
+                'link_processo': link_processo,
+                'classe': titulo_incidente,
+                'numero_processo_incidentes_acoes_recursos_execucoes': numero_processo_incidentes_acoes_recursos_execucoes
             }
-            self.add_to_csv(pdf_info, 'cpopg_moviments')
-        except Exception as e:
-            logging.warning(f'Error saving PDF: {e}')
+            incidentes.append(incidente)
+        return incidentes
 
-    def add_to_csv(self, pdf_info, file_name='file'):
+    def link_processo_apensado(self, response):
+        link_relativo = response.xpath(
+            '//div[contains(@class, "col-lg-4 col-xl-3 mb-2")][.//span[contains(@class, "unj-label") and contains(text(), "Apensado ao")]]//div/a/@href').get()
+        if link_relativo:
+            return f"{self.url_base}{link_relativo}"
+        return None
+
+    def numero_processo_apensado(self, response):
+        return response.xpath(
+            '//div[contains(@class, "col-lg-4 col-xl-3 mb-2")][.//span[contains(@class, "unj-label") and contains(text(), "Apensado ao")]]//div/a/text()').get()
+
+    def extrair_movimentos(self, response, numero_processo):
+        movimentos = []
+        for linha in response.css('#tabelaTodasMovimentacoes tr'):
+            data = linha.css('.dataMovimentacao::text').get(default="").strip()
+
+            titulo = linha.css('.descricaoMovimentacao a::text').get(default="").strip()
+            if not titulo:
+                titulo = linha.css('.descricaoMovimentacao::text').get(default="").strip()
+
+            descricao = linha.css('.descricaoMovimentacao span::text').get(default="").strip()
+
+            movimento = {
+                'numero_processo': numero_processo,
+                'data': data,
+                'titulo': titulo,
+                'descricao': descricao
+            }
+            movimentos.append(movimento)
+        return movimentos
+
+    def link_consulta_sg(self, response):
+        caminho = response.css('.linkConsultaSG::attr("href")').get()
+        if not caminho:
+            return ""
+
+        params = caminho.split('?')[1] if '?' in caminho else ''
+        param_dict = dict(param.split('=') for param in params.split('&') if '=' in param)
+
+        nu_processo = param_dict.get('nuProcesso', '')
+        cd_processo_sg = param_dict.get('cdProcessoSg', '')
+        cd_foro_sg = param_dict.get('cdForoSg', '')
+        is_processo_origem_cr = param_dict.get('isProcessoOrigemCr', '')
+
+        if not nu_processo or not cd_processo_sg or not cd_foro_sg or not is_processo_origem_cr:
+            return ""
+
+        return f"{self.url_base}/abrirConsultaProcessoSG.do?nuProcesso={nu_processo}&cdProcessoSg={cd_processo_sg}&cdForoSg={cd_foro_sg}&isProcessoOrigemCr={is_processo_origem_cr}"
+
+    def extrair_partes_advogados(self, response):
+        partes_advogados = []
+        for elemento in response.css('.nomeParteEAdvogado'):
+            partes_texto = elemento.get().split('<br>')
+            partes_limpas = [
+                re.sub(r'[\n\t\xa0]', '', BeautifulSoup(part, 'html.parser').get_text().strip())
+                for part in partes_texto if part.strip()
+            ]
+            nomes_parte = [partes_limpas[0]] if partes_limpas else []
+            advogados_parte = [re.sub(r'^Advogado:|^Advogada:', '', part).strip() for part in partes_limpas[1:]]
+            partes_advogados.append({
+                'nomes_parte': nomes_parte,
+                'advogados_parte': advogados_parte
+            })
+        return partes_advogados
+
+    def adicionar_csv(self, dados, file_name='file'):
         data_folder = 'data'
         if not os.path.exists(data_folder):
             os.makedirs(data_folder)
 
         csv_file = os.path.join(data_folder, f'{file_name}.csv')
         try:
-            if os.path.exists(csv_file):
+            if os.path.exists(csv_file) and os.path.getsize(csv_file) > 0:
                 df = pd.read_csv(csv_file)
-                df = pd.concat([df, pd.DataFrame([pdf_info])], ignore_index=True)
             else:
-                df = pd.DataFrame([pdf_info])
+                df = pd.DataFrame(columns=dados.keys())
 
+            df = pd.concat([df, pd.DataFrame([dados])], ignore_index=True)
             df.to_csv(csv_file, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
         except Exception as e:
-            logging.error(f"The error occurred while adding information from the PDF to the CSV. {e}")
-
-    def pdf_to_text(self, pdf_content):
-        with pdfplumber.open(BytesIO(pdf_content)) as pdf:
-            extracted_text = ""
-            for page in pdf.pages:
-                extracted_text += page.extract_text()
-
-        extracted_text = ' '.join(extracted_text.split())
-        extracted_text = extracted_text.replace('\n', ' ')
-        extracted_text = extracted_text.replace('\t', '')
-
-        extracted_text = re.sub(r'[;,\'\"\r]', '', extracted_text)
-        extracted_text = re.sub(r'\s+', ' ', extracted_text)
-
-        return extracted_text
+            logging.error(
+                f"Ocorreu um erro ao adicionar informações do PDF ao CSV. Tipo de dado: PDF info. Erro: {e}. Arquivo CSV: {csv_file}, Informações do csv: {dados}\nRastreamento de pilha:\n{traceback.format_exc()}")
