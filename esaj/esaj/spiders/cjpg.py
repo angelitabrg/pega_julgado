@@ -57,22 +57,6 @@ class CjpgSpider(scrapy.Spider):
                 }
                 self.add_to_excel(data, 'cjpg')
 
-                if not self.process_and_content_exists_in_csv(numero_processo):
-                    attributes = process.css('a[title="Visualizar Inteiro Teor"]::attr("name")').get().split('-')
-                    cdprocesso = attributes[0]
-                    cdforo = attributes[1]
-                    mnalias = attributes[2]
-                    cddocumento = attributes[3]
-                    url = f'https://esaj.tjsp.jus.br/cjpg/obterArquivo.do?cdProcesso={cdprocesso}&cdForo={cdforo}&nmAlias={mnalias}&cdDocumento={cddocumento}'
-                    yield scrapy.Request(
-                        url=url,
-                        meta={
-                            'numero_processo': numero_processo,
-                            'cdprocesso': cdprocesso,
-                            'cddocumento': cddocumento
-                        },
-                        callback=self.pdf_viewer
-                    )
             except Exception as e:
                 logging.warning(f'Error saving process data: message={e}')
 
@@ -93,22 +77,6 @@ class CjpgSpider(scrapy.Spider):
             key, value = cookie_str.split('=', 1)
             cookies[key] = value.split(';', 1)[0]
         return cookies
-
-    def process_and_content_exists_in_csv(self, numero_processo):
-        data_folder = 'data'
-        csv_file = os.path.join(data_folder, 'cjpg_pdf_info.csv')
-        if os.path.exists(csv_file):
-            df = pd.read_csv(csv_file)
-            if numero_processo in df['numero_processo'].values:
-                row = df.loc[df['numero_processo'] == numero_processo]
-                if pd.notnull(row['conteudo']).all():
-                    logging.info(f"[Pass]Process number {numero_processo} already has content in CSV.")
-                    return True
-                else:
-                    logging.info(f"[Not pass]Process number {numero_processo} does not have content in CSV.")
-            else:
-                logging.info(f"[Not pass]Process number {numero_processo} not found in CSV.")
-        return False
 
     def has_next_page(self, response):
         if response.css('[title="Próxima página"]'):
@@ -140,46 +108,6 @@ class CjpgSpider(scrapy.Spider):
             return treatment(final_text).strip()
         return ''
 
-    def pdf_viewer(self, response):
-        html_script = response.css('script:contains("parametros")').get('')
-        match = re.search(r'"parametros":"([^"]*)"', html_script)
-        parameters = match.group(1) if match else None
-
-        url = (f'https://esaj.tjsp.jus.br/pastadigital/getPDF.do?{parameters}')
-        yield scrapy.Request(
-            url=url,
-            callback=self.save_pdf,
-            meta=response.meta
-        )
-
-    def save_pdf(self, response):
-        try:
-            data_folder = 'data/pdf/cjpg'
-            if not os.path.exists(data_folder):
-                os.makedirs(data_folder)
-
-            file_name = str(uuid.uuid4())
-            with open(f'{os.path.join(data_folder,file_name)}.pdf', 'wb') as pdf_file:
-                pdf_file.write(response.body)
-
-            conteudo = ''
-
-            try:
-                conteudo = self.pdf_to_text(response.body)
-            except Exception as e:
-                logging.error(f"Ocorreu um erro quando tentava pegar o conteúdo. mensagem_erro: {e}\n{traceback.format_exc()}")
-
-            pdf_info = {
-                'pdf_name': file_name,
-                'numero_processo': response.meta.get('numero_processo'),
-                'cddocumento': response.meta.get('cddocumento'),
-                'cdprocesso': response.meta.get('cdprocesso'),
-                'conteudo': conteudo
-            }
-            self.add_to_excel(pdf_info, 'cjpg_pdf_info')
-        except Exception as e:
-            logging.warning(f'Erro ao salvar o PDF: {e}')
-
     def add_to_excel(self, data, file_name):
         data_folder = 'data'
         if not os.path.exists(data_folder):
@@ -203,18 +131,3 @@ class CjpgSpider(scrapy.Spider):
         except Exception as e:
             logging.error(
                 f"Ocorreu um erro ao adicionar informações do PDF ao CSV. mensagem_erro: {e}\n{traceback.format_exc()}")
-    def pdf_to_text(self, pdf_content):
-        with pdfplumber.open(BytesIO(pdf_content)) as pdf:
-            extracted_text = ""
-            for page in pdf.pages:
-                extracted_text += page.extract_text()
-
-        extracted_text = ' '.join(extracted_text.split())
-        extracted_text = extracted_text.replace('\n', ' ')
-        extracted_text = extracted_text.replace('\t', '')
-
-        extracted_text = re.sub(r'[;,\'\"\r]', '', extracted_text)
-        extracted_text = re.sub(r'\s+', ' ', extracted_text)
-
-        return treatment(extracted_text)
-
