@@ -26,7 +26,6 @@ class CpopgSpider(scrapy.Spider):
             parametros = f'?conversationId=&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dadosConsulta.valorConsultaNuUnificado=&dadosConsulta.valorConsultaNuUnificado=UNIFICADO&dadosConsulta.valorConsulta={numero_processo}&dadosConsulta.tipoNuProcesso=SAJ'
             yield scrapy.Request(url + parametros, callback=self.parse, meta={'numero_processo': numero_processo})
         else:
-            # Caminho do arquivo CSV do cpopg
             caminho_csv_cpopg = 'data/cpopg.csv'
             if os.path.exists(caminho_csv_cpopg) and os.path.getsize(caminho_csv_cpopg) > 0:
                 df_cpopg = pd.read_csv(caminho_csv_cpopg, encoding='utf-8')
@@ -34,10 +33,8 @@ class CpopgSpider(scrapy.Spider):
             else:
                 ultimo_numero_processo = None
 
-            # Ler o arquivo cjpg.csv
             df_cjpg = pd.read_csv('data/cjpg.csv', encoding='utf-8')
 
-            # Determinar o índice inicial
             if ultimo_numero_processo in df_cjpg['numero_processo'].values:
                 indice_inicial = df_cjpg[df_cjpg['numero_processo'] == ultimo_numero_processo].index[0] + 1
             else:
