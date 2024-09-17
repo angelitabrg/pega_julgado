@@ -117,13 +117,7 @@ class CjpgSpider(scrapy.Spider):
         try:
             if os.path.exists(csv_file):
                 df = pd.read_csv(csv_file)
-                if data['numero_processo'] in df['numero_processo'].values:
-                    row_index = df[df['numero_processo'] == data['numero_processo']].index[0]
-                    if 'conteudo' in df.columns and pd.isnull(df.at[row_index, 'conteudo']):
-                        df.at[row_index, 'conteudo'] = data['conteudo']
-                        df.at[row_index, 'pdf_name'] = data['pdf_name']
-                else:
-                    df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
+                df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
             else:
                 df = pd.DataFrame([data])
 

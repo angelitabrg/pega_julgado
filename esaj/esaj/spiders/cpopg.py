@@ -26,12 +26,42 @@ class CpopgSpider(scrapy.Spider):
             parametros = f'?conversationId=&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dadosConsulta.valorConsultaNuUnificado=&dadosConsulta.valorConsultaNuUnificado=UNIFICADO&dadosConsulta.valorConsulta={numero_processo}&dadosConsulta.tipoNuProcesso=SAJ'
             yield scrapy.Request(url + parametros, callback=self.parse, meta={'numero_processo': numero_processo})
         else:
-            with open('data/cjpg.csv', 'r', encoding='utf-8') as file:
-                leitor = csv.DictReader(file)
-                for linha in leitor:
+            # Caminho do arquivo CSV do cpopg
+            caminho_csv_cpopg = 'data/cpopg.csv'
+            if os.path.exists(caminho_csv_cpopg) and os.path.getsize(caminho_csv_cpopg) > 0:
+                df_cpopg = pd.read_csv(caminho_csv_cpopg, encoding='utf-8')
+                ultimo_numero_processo = df_cpopg['numero_processo'].iloc[-1]
+            else:
+                ultimo_numero_processo = None
+
+            # Ler o arquivo cjpg.csv
+            df_cjpg = pd.read_csv('data/cjpg.csv', encoding='utf-8')
+
+            # Determinar o índice inicial
+            if ultimo_numero_processo in df_cjpg['numero_processo'].values:
+                indice_inicial = df_cjpg[df_cjpg['numero_processo'] == ultimo_numero_processo].index[0] + 1
+            else:
+                indice_inicial = 0
+
+            # Fazer requisições para processos do cjpg
+            for _, linha in df_cjpg.iloc[indice_inicial:].iterrows():
+                numero_processo = linha['numero_processo']
+                if not df_cpopg['numero_processo'].str.contains(numero_processo).any():
+                    parametros = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={numero_processo}&tipoNuProcesso=SAJ'
+                    yield scrapy.Request(url + parametros, callback=self.parse,
+                                         meta={'numero_processo': numero_processo})
+
+            if os.path.exists(caminho_csv_cpopg) and os.path.getsize(caminho_csv_cpopg) > 0:
+                df_cpopg = pd.read_csv(caminho_csv_cpopg, encoding='utf-8')
+                processos_sem_situacao = df_cpopg[
+                    df_cpopg['assunto'].isnull() | df_cpopg['assunto'].str.strip() == ''
+                    ]
+                breakpoint()
+                for _, linha in processos_sem_situacao.iterrows():
                     numero_processo = linha['numero_processo']
                     parametros = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={numero_processo}&tipoNuProcesso=SAJ'
-                    yield scrapy.Request(url + parametros, callback=self.parse, meta={'numero_processo': numero_processo})
+                    yield scrapy.Request(url + parametros, callback=self.parse,
+                                         meta={'numero_processo': numero_processo})
 
     def parse(self, response):
         numero_processo = response.meta.get('numero_processo')
@@ -69,10 +99,6 @@ class CpopgSpider(scrapy.Spider):
         }
         self.adicionar_csv(data, 'cpopg')
 
-        apensos_entranhados_unificados = self.extrair_incidentes_acoes_recursos_execucoes(response, numero_processo)
-        for apenso_entranhado_unificado in apensos_entranhados_unificados:
-            self.adicionar_csv(apenso_entranhado_unificado, 'cpopg_extrair_incidentes_acoes_recursos_execucoes')
-
         movements = self.extrair_movimentos(response, numero_processo)
         for movement in movements:
             self.adicionar_csv(movement, 'cpopg_movimentacoes_primeiro_grau')
@@ -82,31 +108,6 @@ class CpopgSpider(scrapy.Spider):
         if link_relativo:
             return f"{self.url_base}{link_relativo}"
         return None
-
-    def extrair_incidentes_acoes_recursos_execucoes(self, response, numero_processo):
-        incidentes = []
-        linhas = [linha for linha in response.css('tr') if linha.css('td .incidente')]
-        for linha in linhas:
-            data_incidente = linha.css('td[width="140"]::text').get(default="").strip()
-            link_processo = linha.css('a.incidente::attr(href)').get(default="").strip()
-            link_processo = f"{self.url_base}{link_processo}" if link_processo else ""
-            incidente_text = linha.css('a.incidente::text').get(default="").strip()
-
-            incidente_text = re.sub(r'\s*\(.*?\)\s*', '', incidente_text).strip()
-
-            titulo_incidente = incidente_text
-            numero_processo_incidentes_acoes_recursos_execucoes = re.search(r'\((.*?)\)', linha.css('a.incidente').get()).group(1) if linha.css(
-                'a.incidente').get() else ""
-
-            incidente = {
-                'numero_processo': numero_processo,
-                'recebido_em': data_incidente,
-                'link_processo': link_processo,
-                'classe': titulo_incidente,
-                'numero_processo_incidentes_acoes_recursos_execucoes': numero_processo_incidentes_acoes_recursos_execucoes
-            }
-            incidentes.append(incidente)
-        return incidentes
 
     def link_processo_apensado(self, response):
         link_relativo = response.xpath(
