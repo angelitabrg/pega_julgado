@@ -53,7 +53,6 @@ class CpopgSpider(scrapy.Spider):
                 processos_sem_situacao = df_cpopg[
                     df_cpopg['assunto'].isnull() | df_cpopg['assunto'].str.strip() == ''
                     ]
-                breakpoint()
                 for _, linha in processos_sem_situacao.iterrows():
                     numero_processo = linha['numero_processo']
                     parametros = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={numero_processo}&tipoNuProcesso=SAJ'
