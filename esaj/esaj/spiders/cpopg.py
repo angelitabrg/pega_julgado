@@ -47,17 +47,7 @@ class CpopgSpider(scrapy.Spider):
                     parametros = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={numero_processo}&tipoNuProcesso=SAJ'
                     yield scrapy.Request(url + parametros, callback=self.parse,
                                          meta={'numero_processo': numero_processo})
-
-            if os.path.exists(caminho_csv_cpopg) and os.path.getsize(caminho_csv_cpopg) > 0:
-                df_cpopg = pd.read_csv(caminho_csv_cpopg, encoding='utf-8')
-                processos_sem_situacao = df_cpopg[
-                    df_cpopg['assunto'].isnull() | df_cpopg['assunto'].str.strip() == ''
-                    ]
-                for _, linha in processos_sem_situacao.iterrows():
-                    numero_processo = linha['numero_processo']
-                    parametros = f'?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=&foroNumeroUnificado=&dePesquisaNuUnificado=&dePesquisaNuUnificado=UNIFICADO&dePesquisa={numero_processo}&tipoNuProcesso=SAJ'
-                    yield scrapy.Request(url + parametros, callback=self.parse,
-                                         meta={'numero_processo': numero_processo})
+                    
 
     def parse(self, response):
         numero_processo = response.meta.get('numero_processo')
